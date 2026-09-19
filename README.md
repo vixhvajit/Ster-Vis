@@ -110,3 +110,9 @@ python -m pytest
 
 No camera needed — the disparity test shifts a textured image by a known number
 of pixels and checks the matcher recovers that shift.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Copyright 2026 Vishvajit S.
