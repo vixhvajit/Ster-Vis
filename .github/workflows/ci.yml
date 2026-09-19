@@ -13,18 +13,34 @@ concurrency:
 
 jobs:
   test:
-    name: pytest (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - name: Linux x86, Python 3.11
+            os: ubuntu-latest
             python-version: "3.11"
-          - os: ubuntu-latest
+          - name: Linux x86, Python 3.12
+            os: ubuntu-latest
             python-version: "3.12"
-          - os: windows-latest
+          - name: Windows, Python 3.11
+            os: windows-latest
             python-version: "3.11"
+          # ARM64, the Raspberry Pi 5's architecture. These are not Pis, but
+          # they run the same aarch64 wheels and catch anything that differs
+          # from x86. The two mirror the Python and numpy that Raspberry Pi OS
+          # ships: Trixie (current) and Bookworm (previous).
+          - name: ARM64, Pi OS Trixie stack (Python 3.13, numpy 2)
+            os: ubuntu-24.04-arm
+            python-version: "3.13"
+            benchmark: true
+          - name: ARM64, Pi OS Bookworm stack (Python 3.11, numpy 1.24, OpenCV 4.11)
+            os: ubuntu-24.04-arm
+            python-version: "3.11"
+            requirements: requirements-pi-bookworm.txt
+            numpy: "1.24.*"
 
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +49,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements*.txt
 
       # The GUI build of OpenCV links against libGL and glib, which the Linux
       # runners do not ship. Package names moved around in Ubuntu 24.04, so try
@@ -46,9 +62,15 @@ jobs:
             || sudo apt-get install -y -qq libgl1-mesa-glx libglib2.0-0
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          if [ -n "${{ matrix.requirements }}" ]; then
+            pip install -r "${{ matrix.requirements }}" pytest ${{ matrix.numpy && format('"numpy=={0}"', matrix.numpy) || '' }}
+          else
+            pip install -r requirements-dev.txt
+          fi
+          python -c "import cv2, numpy; print('OpenCV', cv2.__version__, '| numpy', numpy.__version__)"
 
       - name: Check the package imports
         run: python -c "import sys; sys.path.insert(0, 'src'); import stereo_vision; print(stereo_vision.__all__)"
@@ -62,3 +84,9 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+      # Proves the benchmark runs on ARM64. The numbers come from a shared
+      # cloud CPU, not a Pi, so they are not a guide to Pi frame rates.
+      - name: Benchmark smoke test
+        if: matrix.benchmark
+        run: python scripts/benchmark.py --presets pi5,pi5-fast,pi5-bm --threads 4

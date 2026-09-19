@@ -1,0 +1,8 @@
+# Raspberry Pi OS Bookworm (Debian 12) only. Current Pi OS is Trixie: use requirements.txt.
+#
+# Bookworm's python3-picamera2 from apt is built against the system numpy 1.24.
+# OpenCV 4.12 and later need numpy 2, and installing that into the venv can
+# break picamera2's compiled parts. 4.11.0.86 is the last OpenCV that works with
+# numpy 1.x, and it has ARM64 wheels. Leave numpy to the system package.
+opencv-contrib-python==4.11.0.86
+numpy>=1.23.5,<2

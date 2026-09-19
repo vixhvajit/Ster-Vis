@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import cv2
@@ -41,6 +41,9 @@ class StereoCalibration:
     # Share of the frame, in percent, that board corners reached in the worse
     # of the two cameras. NaN for calibrations saved before it was recorded.
     coverage_pct: float = float("nan")
+    # Size of the rectified output, when it differs from the raw frames; see
+    # scaled(). None means the same size as image_size.
+    rectified_size: tuple[int, int] | None = None
 
     @property
     def baseline(self) -> float:
@@ -52,6 +55,45 @@ class StereoCalibration:
         """Rectified focal length in pixels, taken from the projection matrix."""
         return float(self.P1[0, 0])
 
+    @property
+    def output_size(self) -> tuple[int, int]:
+        """Width and height of rectified images."""
+        return self.rectified_size or self.image_size
+
+    def scaled(self, scale: float) -> "StereoCalibration":
+        """The same rig, rectified straight to a smaller (or larger) image.
+
+        Raw frames keep their size; only the rectified output changes, inside
+        the same remap that rectification already does, so it costs nothing
+        extra. Matching time falls roughly with the square of the scale, while
+        disparity, and with it depth precision, falls linearly: at 0.5 the
+        matcher does about a quarter of the work and depth error at a given
+        distance roughly doubles.
+
+        This is the right way to trade accuracy for speed on a slow board:
+        calibrate once at full resolution, then run scaled. Capturing at a
+        lower resolution instead only works if that camera mode sees exactly
+        the same field of view, which many webcam modes do not (they crop).
+        """
+        if scale <= 0:
+            raise ValueError("scale must be positive")
+        pixels = np.diag([scale, scale, 1.0])
+        Q = self.Q.copy()
+        # Q maps (u, v, d, 1) to 3D. Scaling u, v and d by s leaves the 3D
+        # point unchanged once cx, cy, f and (cx - cx') scale by s too.
+        Q[0, 3] *= scale
+        Q[1, 3] *= scale
+        Q[2, 3] *= scale
+        Q[3, 3] *= scale
+        width, height = self.output_size
+        return replace(
+            self,
+            P1=pixels @ self.P1,
+            P2=pixels @ self.P2,
+            Q=Q,
+            rectified_size=(max(1, round(width * scale)), max(1, round(height * scale))),
+        )
+
     def rectification_maps(
         self, map_type: int = cv2.CV_16SC2
     ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
@@ -61,7 +103,7 @@ class StereoCalibration:
             self.dist_coeffs_left,
             self.R1,
             self.P1,
-            self.image_size,
+            self.output_size,
             map_type,
         )
         right = cv2.initUndistortRectifyMap(
@@ -69,7 +111,7 @@ class StereoCalibration:
             self.dist_coeffs_right,
             self.R2,
             self.P2,
-            self.image_size,
+            self.output_size,
             map_type,
         )
         return left, right
@@ -93,6 +135,7 @@ class StereoCalibration:
             Q=self.Q,
             rms=np.asarray(self.rms),
             coverage_pct=np.asarray(self.coverage_pct),
+            rectified_size=np.asarray(self.rectified_size or (0, 0)),
         )
         return path
 
@@ -115,7 +158,15 @@ def load_calibration(path: str | Path) -> StereoCalibration:
             Q=data["Q"],
             rms=float(data["rms"]),
             coverage_pct=float(data["coverage_pct"]) if "coverage_pct" in data else float("nan"),
+            rectified_size=_optional_size(data),
         )
+
+
+def _optional_size(data) -> tuple[int, int] | None:
+    if "rectified_size" not in data:
+        return None
+    width, height = (int(v) for v in data["rectified_size"])
+    return (width, height) if width and height else None
 
 
 def object_points(board: BoardSpec) -> np.ndarray:

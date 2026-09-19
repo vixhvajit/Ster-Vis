@@ -12,9 +12,29 @@ from .config import SGBMParams
 DISPARITY_SCALE = 16.0
 
 
-def build_matcher(params: SGBMParams | None = None) -> cv2.StereoSGBM:
-    """Create a left-view SGBM matcher from the given parameters."""
+SGBM_MODES = {
+    "sgbm": cv2.STEREO_SGBM_MODE_SGBM,
+    "sgbm_3way": cv2.STEREO_SGBM_MODE_SGBM_3WAY,
+    "hh4": cv2.STEREO_SGBM_MODE_HH4,
+}
+
+
+def build_matcher(params: SGBMParams | None = None) -> cv2.StereoMatcher:
+    """Create a left-view matcher (SGBM or block matching) from the parameters."""
     params = params or SGBMParams()
+    if params.mode == "bm":
+        matcher = cv2.StereoBM_create(
+            numDisparities=params.num_disparities, blockSize=params.block_size
+        )
+        matcher.setMinDisparity(params.min_disparity)
+        matcher.setPreFilterCap(min(params.pre_filter_cap, 63))
+        matcher.setUniquenessRatio(params.uniqueness_ratio)
+        matcher.setSpeckleWindowSize(params.speckle_window_size)
+        matcher.setSpeckleRange(params.speckle_range)
+        matcher.setDisp12MaxDiff(params.disp12_max_diff)
+        # Reject blocks with too little texture to match reliably.
+        matcher.setTextureThreshold(10)
+        return matcher
     return cv2.StereoSGBM_create(
         minDisparity=params.min_disparity,
         numDisparities=params.num_disparities,
@@ -26,7 +46,7 @@ def build_matcher(params: SGBMParams | None = None) -> cv2.StereoSGBM:
         uniquenessRatio=params.uniqueness_ratio,
         speckleWindowSize=params.speckle_window_size,
         speckleRange=params.speckle_range,
-        mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,
+        mode=SGBM_MODES[params.mode],
     )
 
 
@@ -38,7 +58,7 @@ def compute_disparity(
     left: np.ndarray,
     right: np.ndarray,
     params: SGBMParams | None = None,
-    matcher: cv2.StereoSGBM | None = None,
+    matcher: cv2.StereoMatcher | None = None,
 ) -> np.ndarray:
     """Compute a float32 disparity map in pixels.
 

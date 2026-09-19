@@ -27,13 +27,24 @@ class BoardSpec:
         return self.columns * self.rows
 
 
+MATCHER_MODES = ("sgbm_3way", "sgbm", "hh4", "bm")
+
+
 @dataclass(frozen=True)
 class SGBMParams:
-    """StereoSGBM settings.
+    """Stereo matcher settings.
 
     ``num_disparities`` must be a positive multiple of 16 and bounds the closest
     measurable distance; ``block_size`` must be odd. The penalty defaults follow
     the OpenCV guidance of 8 and 32 times the channel count times block area.
+
+    ``mode`` picks the algorithm:
+
+    - ``sgbm_3way``: semi-global matching, OpenCV's fastest SGBM variant (default)
+    - ``sgbm``: the original five-direction SGBM, slower, marginally smoother
+    - ``hh4``: SGBM over four directions
+    - ``bm``: plain block matching, several times faster than any SGBM but with
+      more holes and noise; the penalties and ``channels`` do not apply to it
     """
 
     min_disparity: int = 0
@@ -45,12 +56,17 @@ class SGBMParams:
     disp12_max_diff: int = 1
     pre_filter_cap: int = 31
     channels: int = 1
+    mode: str = "sgbm_3way"
 
     def __post_init__(self) -> None:
         if self.num_disparities <= 0 or self.num_disparities % 16 != 0:
             raise ValueError("num_disparities must be a positive multiple of 16")
         if self.block_size % 2 == 0:
             raise ValueError("block_size must be odd")
+        if self.mode not in MATCHER_MODES:
+            raise ValueError(f"mode must be one of {', '.join(MATCHER_MODES)}")
+        if self.mode == "bm" and self.block_size < 5:
+            raise ValueError("block matching needs block_size of at least 5")
 
     @property
     def p1(self) -> int:

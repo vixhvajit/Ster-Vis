@@ -40,13 +40,20 @@ src/stereo_vision/
   disparity.py       StereoSGBM matcher, optional WLS filter, colorizing
   depth.py           disparity to depth, depth files, point cloud, PLY export
   pattern.py         chessboard target as a true-scale PDF or a raster
+  presets.py         named speed/accuracy trade-offs
+  sources.py         USB and Pi camera capture, threaded, with frame sync
+  live.py            per-frame depth pipeline with stage timings
+  stream.py          MJPEG server for watching a headless Pi in a browser
+  autocapture.py     saves calibration pairs without a key press
+  benchmark.py       frame rate per preset, and accuracy against truth
   synthetic.py       virtual stereo rig that photographs the chessboard
   scene.py           ray-traced 3D scene with exact per-pixel depth
 scripts/
   make_chessboard.py write a printable calibration target
-  capture_pairs.py   capture board pairs, with a live coverage grid
+  capture_pairs.py   capture board pairs, with a live coverage grid or --auto
   calibrate.py       solve the rig and write calib/stereo.npz
-  run_disparity.py   rectify, match, save a depth map or point cloud
+  run_disparity.py   rectify, match, save depth; live with a window or streamed
+  benchmark.py       measure presets on this machine
   view_depth.py      inspect a depth map (hover for mm, click to measure)
   synthetic_check.py calibration check against a rig with known geometry
   scene_depth.py     depth map of a synthetic scene, scored pixel by pixel
@@ -170,6 +177,11 @@ where the boards were. The badly centred calibration above reported a *better*
 RMS (0.19 px) than the well spread one (0.23 px), while being thirteen times
 worse at the edges. Coverage is the number that catches this.
 
+Even a well-spread calibration measures the baseline only so precisely. With
+20–25 pairs, the synthetic tests put it about 0.5% off on average, and up to
+1% on unlucky sets. That error scales every depth reading by the same amount.
+More pairs, and a board whose square size you measured carefully, tighten it.
+
 ### 3. Disparity and depth
 
 ```powershell
@@ -191,8 +203,155 @@ tools read it too.
 Or live, from the cameras:
 
 ```powershell
-python scripts/run_disparity.py --live
+python scripts/run_disparity.py --live --preset balanced
 ```
+
+`--preset` trades accuracy for speed (see [Presets](#presets)), and
+`--min-distance` sets the closest distance to measure, in the calibration's
+units. A larger minimum distance is faster.
+
+## Raspberry Pi 5
+
+Ster-Vis runs on a Pi 5 as a self-contained depth camera, with or without a
+display. What's tuned for it:
+
+- **Presets that rectify straight to a smaller image.** Half resolution does
+  about an eighth of the matching work, with no extra resize step.
+- **Pi camera modules through Picamera2**, including both connectors on the
+  Pi 5. The greyscale image comes straight from the camera's YUV output, with
+  no colour conversion per frame.
+- **Frame synchronisation.** Where libcamera supports it, Raspberry Pi's
+  software camera sync makes the two cameras expose together; Raspberry Pi
+  documents the result as within "several tens of microseconds". Where it
+  doesn't, pairs are matched by sensor timestamp to within half a frame. Each
+  frame reports its skew either way.
+- **Locked focus.** Camera Module 3's autofocus would change the focal length
+  and quietly invalidate the calibration, so focus is fixed (`--focus`, in
+  dioptres: 1.0 focuses at 1 m).
+- **Capture on its own thread**, so the cameras deliver the next pair while
+  the current one is matched.
+- **Headless operation:** the live view streams to any browser, depth maps
+  save on a timer, and calibration pairs capture themselves without a key
+  press.
+- **A benchmark** that measures real frame rates on the Pi and checks for
+  thermal throttling.
+
+### Hardware
+
+- Raspberry Pi 5 with the **Active Cooler**. Stereo matching keeps all four
+  cores busy, and without cooling the Pi throttles, so the frame rate drops
+  after a minute or two. The benchmark reports whether this happened.
+- The **27 W USB-C power supply**, which is Raspberry Pi's recommendation for
+  the Pi 5.
+- **Two identical camera modules** on the two camera connectors, bolted to one
+  rigid bar. Two USB webcams also work (`--backend opencv`). If they share a
+  USB bus, add `--fourcc MJPG`, because two uncompressed 720p streams can
+  exceed what one bus carries.
+
+### Setup
+
+On Raspberry Pi OS (current release, based on Debian Trixie):
+
+```bash
+sudo apt update && sudo apt full-upgrade -y
+sudo apt install -y python3-picamera2        # already installed except on Lite
+rpicam-hello --list-cameras                  # should list two cameras
+
+git clone https://github.com/vixhvajit/Ster-Vis.git
+cd Ster-Vis
+python3 -m venv --system-site-packages .venv # lets the venv see picamera2
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Picamera2 comes from apt rather than pip, as Raspberry Pi recommends: apt
+guarantees a matching libcamera. `--system-site-packages` makes it visible
+inside the virtual environment.
+
+**On the older Bookworm release**, install `requirements-pi-bookworm.txt`
+instead of `requirements.txt`. Bookworm's picamera2 is built against numpy
+1.24, and current OpenCV needs numpy 2, which can break it. That file pins the
+last OpenCV that works with numpy 1. CI tests both stacks on ARM64.
+
+`full-upgrade` also brings a libcamera new enough for software camera sync.
+Without it, capture falls back to timestamp pairing and tells you so.
+
+### Headless workflow
+
+Everything below works over SSH, watching from a laptop's browser.
+
+**1. Capture calibration pairs.** Print the board, then:
+
+```bash
+python scripts/capture_pairs.py --auto --headless --stream 8080 --width 1280 --height 720
+```
+
+Open the printed address (`http://<pi-name>.local:8080/`) on your laptop.
+Hold the board still for about half a second in each new position. A pair
+saves by itself when the board is still, visible to both cameras, and either
+reaches uncovered parts of the frame or sits clearly apart from earlier
+poses. Capture stops at 25 pairs and 75% coverage.
+
+**2. Calibrate:**
+
+```bash
+python scripts/calibrate.py --square-size 25
+```
+
+**3. Measure your Pi's speed:**
+
+```bash
+python scripts/benchmark.py --threads 1,2,4
+```
+
+This prints a table of frame rate per preset and thread count, and warns if
+the Pi throttled during the run. The first run ray traces a test frame, which
+takes a while on a Pi; it is cached for later runs. Add `--live` to time your
+real cameras with your calibration.
+
+**4. Run live:**
+
+```bash
+python scripts/run_disparity.py --live --preset pi5 --headless --stream 8080 --save-dir output/live
+```
+
+The browser shows the camera image beside colour-coded depth, with the frame
+rate and camera skew. A depth map saves to `output/live/` every second
+(`--save-every`), and opens in the [viewers](#viewing-results).
+
+Keep `--width`, `--height` and `--focus` the same for capture and live runs. A
+calibration only holds for the resolution and focus it was made at, and the
+live script refuses frames of the wrong size.
+
+The stream has no password. Anyone on the same network can open it.
+
+### Presets
+
+| Preset | Rectified size (from 1280×720) | Matching work | Filled | Error 0.6–1 m | Error 1.2–2 m | Error 2.2–3 m |
+|---|---|---|---|---|---|---|
+| `quality` | 1280×720 | 100% | 93% | 0.44% | 1.79% | 3.99% |
+| `balanced` | 960×540 | 37% | 94% | 0.53% | 2.15% | 3.77% |
+| `pi5` | 640×360 | 13% | 93% | 0.71% | 2.35% | 4.33% |
+| `pi5-fast` | 480×270 | 5% | 94% | 0.71% | 1.75% | 5.25% |
+| `pi5-bm` | 640×360, block matching | 13% | 90% | 0.44% | 1.87% | 4.14% |
+
+*Matching work* is pixels × disparity range relative to `quality`, which is
+what matching time scales with. The error columns are median depth error on a
+textured target swept from 0.6 m to 3 m, with the 60 mm synthetic rig
+calibrated from rendered chessboards (`python scripts/benchmark.py
+--accuracy`). They don't depend on the computer. Frame rates do, so measure
+them on your Pi with the benchmark.
+
+How to read it:
+
+- **Beyond about 2 m, calibration error dominates**, whatever the preset. For
+  long range, a wider baseline helps more than a slower preset.
+- **`pi5-fast` loses little up to 2 m.** Below 3/8 scale, near-range error
+  rose by about 70% in testing, so no preset goes lower.
+- **`pi5-bm` fills fewer pixels.** Block matching was as accurate here but left
+  2–8% more holes, and the richly textured test target flatters it. It uses one
+  core where SGBM uses several, so which of `pi5` and `pi5-bm` is faster
+  depends on the machine: the benchmark tells you.
 
 ## Viewing results
 
@@ -368,7 +527,10 @@ python -m pytest
 ```
 
 No camera needed. The suite renders chessboards and a 3D scene with known
-geometry, runs the real pipeline on them and checks the answers. That includes
+geometry, runs the real pipeline on them and checks the answers. The Pi camera
+code is tested against a stand-in for picamera2 that reproduces its YUV
+layout, timestamps, sync handshake and request lifecycle. CI runs everything
+on Linux, Windows and ARM64, the Pi 5's architecture. That includes
 the full depth map from an estimated calibration, and a regression test for a
 corner-refinement bug that put corners up to 11 px off on small, tilted boards.
 
