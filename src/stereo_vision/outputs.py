@@ -121,8 +121,9 @@ def laser_scan(
     ``min_height_m`` and ``max_height_m`` count, so the floor and ceiling are
     ignored. Set that band to the heights your robot can collide with: for a
     camera 0.3 m above the floor, a band of -0.25..+0.5 keeps everything from
-    5 cm above the floor upwards. Bearings with no point in range read inf,
-    as navigation stacks expect; bearings the matcher could not see read nan.
+    5 cm above the floor upwards. Bearings whose band has depth but no point
+    in range read inf, as navigation stacks expect; bearings with no depth
+    inside the band read nan, even if the floor below it was seen.
 
     For a pinhole camera a pixel's bearing depends only on its column, so the
     work is a minimum down each column followed by folding columns into
@@ -145,9 +146,13 @@ def laser_scan(
     with np.errstate(invalid="ignore"):
         up = rows * depth_m
         horizontal = depth_m * factor[None, :]
-        usable = (up >= min_height_m) & (up <= max_height_m) & (horizontal >= range_min_m) & (horizontal <= range_max_m)
+        in_band = (up >= min_height_m) & (up <= max_height_m)
+        usable = in_band & (horizontal >= range_min_m) & (horizontal <= range_max_m)
     column_min = np.where(usable, horizontal, np.inf).min(axis=0)
-    column_seen = np.isfinite(depth_m).any(axis=0)
+    # A column counts as seen only if it has depth inside the band. Depth
+    # elsewhere, such as the floor below it, says nothing about obstacles at
+    # the robot's height, so a band with no depth is unknown, not clear.
+    column_seen = in_band.any(axis=0)
 
     ranges = np.full(beams, np.inf, np.float32)
     np.minimum.at(ranges, beam_of_column, column_min.astype(np.float32))

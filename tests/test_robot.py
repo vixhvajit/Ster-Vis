@@ -55,11 +55,31 @@ class TestGeometry:
         assert np.allclose(scan.ranges[finite], expected[finite], rtol=0.02)
 
     def test_scan_ignores_the_floor_below_the_band(self):
-        depth = np.full((CAMERA.height, CAMERA.width), np.nan, np.float32)
-        depth[300:, :] = 1.5  # low rows: 1.5 m away, well below the camera
+        depth = wall(4.0)
+        depth[300:, :] = 1.5  # low rows: floor 1.5 m away, well below the camera
         scan = laser_scan(depth, CAMERA, min_height_m=-0.25, max_height_m=0.25)
-        # Seen but outside the height band: clear (inf), not an obstacle.
-        assert np.isinf(scan.ranges[np.isfinite(scan.ranges) | np.isinf(scan.ranges)]).all()
+        # The floor is nearer than the wall but outside the band: never an obstacle.
+        finite = np.isfinite(scan.ranges)
+        assert finite.all()
+        assert (scan.ranges[finite] > 3.9).all()
+
+    def test_depth_only_outside_the_band_is_unknown_not_clear(self):
+        # The band went blank on the right, as when a confidence filter drops
+        # it, but the floor there kept its depth. Floor pixels say nothing
+        # about obstacle height, so those bearings must read unknown (nan):
+        # reporting them clear would drive the robot into whatever is there.
+        depth = wall(2.0)
+        depth[:, 560:] = np.nan
+        depth[300:, 560:] = 1.5  # floor below the band
+        scan = laser_scan(depth, CAMERA, min_height_m=-0.25, max_height_m=0.25)
+        # Beams run right to left, so the blank right edge is at the start of the array.
+        assert np.isnan(scan.ranges[:5]).all()
+        assert np.isfinite(scan.ranges[-5:]).all()
+
+    def test_band_seen_but_empty_within_range_is_clear(self):
+        depth = wall(15.0)  # everything in the band lies beyond range_max
+        scan = laser_scan(depth, CAMERA, min_height_m=-0.25, max_height_m=0.25, range_max_m=10.0)
+        assert np.isinf(scan.ranges).all()
 
     def test_unseen_bearings_are_nan_not_clear(self):
         depth = wall(2.0)
