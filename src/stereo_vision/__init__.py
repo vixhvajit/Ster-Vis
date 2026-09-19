@@ -1,6 +1,6 @@
 """Stereo vision toolkit: calibration, rectification, disparity and depth."""
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 from .config import BoardSpec, SGBMParams
 from .calibration import StereoCalibration, calibrate_stereo, load_calibration

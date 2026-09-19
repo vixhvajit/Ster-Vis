@@ -444,7 +444,8 @@ def main() -> None:
                 low = result.confidence < args.min_confidence
                 # The right-view matcher has no data in the last columns, so the
                 # check scores them 0; keep the left matcher's depth there, or
-                # the scan calls that edge clear (tune.py: missed 2% -> 0.03%).
+                # that edge reads unknown. (Before Ster-Vis 2.0.2 it read clear:
+                # tune.py measured 2% of near obstacles missed.)
                 low[:, -round(RIGHT_EDGE_PX * camera.width / 320):] = False
                 result.depth_mm[low] = np.nan
             robot = build_robot_frame(result, camera, seq, scan_config)

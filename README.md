@@ -818,13 +818,14 @@ What the simulation showed:
   which still covers everything from 6 cm to 47 cm off the floor, they made
   about 1% on the same 186 recorded frames (`tune.py`). The full runs above use
   the tight band.
-- **Known gap in `laser_scan`.** With the confidence check on, depth is lost
-  in a ~40 px strip at the right edge, because the right-to-left match has no
-  data there. The floor in those columns still has depth, so `laser_scan`
-  counts the beams as seen and reports them clear (inf), not unknown (NaN).
-  That was 2% missed obstacles, until the simulation kept the unchecked depth
-  in that strip. `laser_scan` should report a beam as seen only when the height
-  band itself has data.
+- **It found a bug in `laser_scan`, fixed in 2.0.2.** With the confidence
+  check on, depth is lost in a ~40 px strip at the right edge, because the
+  right-to-left match has no data there. The floor in those columns still had
+  depth, so `laser_scan` counted the beams as seen and reported them clear
+  (inf), not unknown (NaN): 2% of near obstacles missed. Since 2.0.2 a beam
+  counts as seen only with depth inside the height band; on the same recorded
+  frames, none are missed. `avoid.py` also keeps the unchecked depth in that
+  strip, so the edge is seen rather than unknown.
 
 How to run it, and what each script does: [sim/gazebo/README.md](sim/gazebo/README.md).
 
