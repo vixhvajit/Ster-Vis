@@ -11,6 +11,25 @@ release notes, so write entries for the people who install it.
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-09-19
+
+### Fixed
+
+- **The laser scan could report a blocked direction as clear.** A direction
+  counted as seen if its image column had depth anywhere, including on the
+  floor below the scan's height band. When the band itself had no depth, for
+  example where the confidence check dropped it or SGBM could not match a plain
+  obstacle, the direction read `inf` (clear) instead of `nan` (unknown).
+  Directions now count as seen only with depth inside the band. Found by a
+  Gazebo simulation, where 2% of nearby obstacles had read clear; on the same
+  recorded frames, none do now.
+
+  **This can change how a robot behaves**, by design. Directions that were
+  wrongly clear now read unknown, so a robot that treats unknown as
+  blocked is more cautious there. This changes the ROS 2 `scan` topic and
+  `laser_scan` in Python. The obstacle outputs and the HTTP scan already treat
+  clear and unknown alike (no reading, and `null`), so they are unchanged.
+
 ## [2.0.1] - 2026-09-19
 
 ### Fixed
@@ -100,7 +119,8 @@ First release.
 - Synthetic ground truth: a virtual stereo rig and a ray-traced scene, so the
   whole pipeline is tested without cameras.
 
-[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/vixhvajit/Ster-Vis/compare/v0.1.0...v2.0.0
 [0.1.0]: https://github.com/vixhvajit/Ster-Vis/releases/tag/v0.1.0
