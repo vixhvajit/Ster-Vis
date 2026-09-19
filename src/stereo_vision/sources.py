@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -33,6 +33,9 @@ class StereoFrame:
     # Sensor timestamp difference, left minus right, in milliseconds, when the
     # backend reports timestamps. None means unknown, as with USB webcams.
     skew_ms: float | None = None
+    # Wall-clock capture time in seconds since the epoch (time.time()), taken
+    # when the pair was read, for stamping outputs a robot consumes.
+    timestamp: float = field(default_factory=time.time)
 
 
 class StereoSource:
@@ -375,3 +378,128 @@ def open_source(
     else:
         raise ValueError("backend must be auto, opencv or picamera2")
     return ThreadedSource(source) if threaded else source
+
+
+class Recorder:
+    """Write frame pairs to disk for later replay, like a ZED .svo recording.
+
+    Layout: ``left/000000.png``, ``right/000000.png`` and ``frames.csv`` with
+    each frame's capture time and camera skew. PNG is lossless, so a replay
+    reproduces the original depth exactly; at 1280x720 greyscale expect about
+    1-2 MB per pair.
+    """
+
+    def __init__(self, directory, fps_hint: float | None = None) -> None:
+        from pathlib import Path
+
+        self.directory = Path(directory)
+        (self.directory / "left").mkdir(parents=True, exist_ok=True)
+        (self.directory / "right").mkdir(parents=True, exist_ok=True)
+        self.count = len(list((self.directory / "left").glob("*.png")))
+        new = not (self.directory / "frames.csv").exists()
+        self._index = open(self.directory / "frames.csv", "a", encoding="utf-8")
+        if new:
+            self._index.write("frame,timestamp,skew_ms\n")
+
+    def write(self, frame: StereoFrame) -> None:
+        name = f"{self.count:06d}.png"
+        cv2.imwrite(str(self.directory / "left" / name), frame.left)
+        cv2.imwrite(str(self.directory / "right" / name), frame.right)
+        skew = "" if frame.skew_ms is None else f"{frame.skew_ms:.3f}"
+        self._index.write(f"{self.count},{frame.timestamp:.6f},{skew}\n")
+        self._index.flush()
+        self.count += 1
+
+    def close(self) -> None:
+        self._index.close()
+
+    def __enter__(self) -> "Recorder":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class ReplaySource(StereoSource):
+    """Play back a recording, or any folder of left/right image pairs, as cameras.
+
+    With ``realtime`` the frames arrive at their recorded pace (or ``fps`` when
+    the folder has no timestamps, such as calibration captures), so code under
+    test sees the same timing it would live. Timestamps are replaced with the
+    playback time unless ``original_times`` is set. ``loop`` restarts at the end
+    instead of stopping with EOFError.
+    """
+
+    def __init__(
+        self,
+        directory,
+        grey: bool = True,
+        realtime: bool = True,
+        fps: float = 30.0,
+        loop: bool = False,
+        original_times: bool = False,
+    ) -> None:
+        from pathlib import Path
+
+        self.directory = Path(directory)
+        left = {p.name: p for p in sorted((self.directory / "left").glob("*.png"))}
+        right = {p.name: p for p in sorted((self.directory / "right").glob("*.png"))}
+        self.names = sorted(set(left) & set(right))
+        if not self.names:
+            raise FileNotFoundError(f"no left/right image pairs in {self.directory}")
+        self.left_files, self.right_files = left, right
+        self.flag = cv2.IMREAD_GRAYSCALE if grey else cv2.IMREAD_COLOR
+        self.realtime, self.fps, self.loop, self.original_times = realtime, fps, loop, original_times
+
+        self.times: list[float | None] = [None] * len(self.names)
+        self.skews: list[float | None] = [None] * len(self.names)
+        index = self.directory / "frames.csv"
+        if index.exists():
+            rows = index.read_text(encoding="utf-8").splitlines()[1:]
+            by_frame = {}
+            for row in rows:
+                number, stamp, skew = (row.split(",") + ["", ""])[:3]
+                by_frame[f"{int(number):06d}.png"] = (float(stamp), float(skew) if skew else None)
+            for i, name in enumerate(self.names):
+                if name in by_frame:
+                    self.times[i], self.skews[i] = by_frame[name]
+
+        first = cv2.imread(str(left[self.names[0]]), cv2.IMREAD_UNCHANGED)
+        self.size = (first.shape[1], first.shape[0])
+        self.position = 0
+        self._started: float | None = None
+
+    def __len__(self) -> int:
+        return len(self.names)
+
+    def _due(self, index: int) -> float:
+        """Seconds after playback start at which frame ``index`` is due."""
+        first, this = self.times[0], self.times[index]
+        if first is not None and this is not None:
+            return this - first
+        return index / self.fps
+
+    def read(self) -> StereoFrame:
+        if self.position >= len(self.names):
+            if not self.loop:
+                raise EOFError("end of recording")
+            self.position, self._started = 0, None
+        index = self.position
+        self.position += 1
+
+        if self.realtime:
+            now = time.monotonic()
+            if self._started is None:
+                self._started = now - self._due(index)
+            wait = self._started + self._due(index) - now
+            if wait > 0:
+                time.sleep(wait)
+
+        name = self.names[index]
+        left = cv2.imread(str(self.left_files[name]), self.flag)
+        right = cv2.imread(str(self.right_files[name]), self.flag)
+        stamp = self.times[index] if self.original_times and self.times[index] is not None else time.time()
+        return StereoFrame(left, right, self.skews[index], stamp)
+
+    def close(self) -> None:
+        pass

@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
                         "sudo apt install python3-picamera2, and create the venv with --system-site-packages")
         except Exception as error:  # a numpy mismatch shows up here, not as ImportError
             report.line("fail", "picamera2", f"import failed: {error}",
-                        "on Bookworm: pip install -c constraints-pi-bookworm.txt --force-reinstall ster-vis")
+                        "on Bookworm: pip install -c constraints-numpy1.txt --force-reinstall ster-vis (numpy 1.x)")
 
         from stereo_vision.benchmark import raspberry_pi_health
 

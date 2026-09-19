@@ -11,8 +11,8 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Vishvajit S" }]
 requires-python = ">=3.11"
-# numpy 1.23.5 is the floor so Raspberry Pi OS Bookworm's system numpy (1.24)
-# still qualifies; see constraints-pi-bookworm.txt.
+# numpy 1.23.5 is the floor so system numpy 1.x installs qualify (Pi OS Bookworm:
+# 1.24; ROS 2 Jazzy on Ubuntu 24.04: 1.26); see constraints-numpy1.txt.
 dependencies = [
     "opencv-contrib-python>=4.9,<5",
     "numpy>=1.23.5,<3",

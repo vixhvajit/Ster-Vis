@@ -37,7 +37,15 @@ from stereo_vision.disparity import (
 )
 from stereo_vision.live import DepthPipeline, RateMeter, overlay
 from stereo_vision.presets import DEFAULT_MIN_DISTANCE_MM, PRESETS, get_preset
-from stereo_vision.sources import open_source
+from stereo_vision.cli.common import (
+    UNIT_TO_M,
+    add_camera_args,
+    add_robot_args,
+    info_dict,
+    open_frames,
+    scan_config,
+)
+from stereo_vision.outputs import CameraModel, build_robot_frame
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -68,29 +76,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     output.add_argument("--max-depth", type=float, default=None,
                         help="drop points beyond this depth from the point cloud")
 
-    live = parser.add_argument_group("live cameras")
-    live.add_argument("--live", action="store_true", help="read from two cameras")
-    live.add_argument("--backend", choices=["auto", "opencv", "picamera2"], default="auto",
-                      help="auto uses Pi camera modules when two are attached, else USB")
-    live.add_argument("--left-index", type=int, default=0, help="left camera number")
-    live.add_argument("--right-index", type=int, default=1, help="right camera number")
-    live.add_argument("--width", type=int, default=None, help="capture width (default: calibrated)")
-    live.add_argument("--height", type=int, default=None, help="capture height (default: calibrated)")
-    live.add_argument("--fps", type=float, default=30.0, help="camera frame rate to request")
-    live.add_argument("--fourcc", default=None, help="USB camera format, e.g. MJPG")
-    live.add_argument("--focus", type=float, default=1.0, metavar="DIOPTRES",
-                      help="Pi cameras with autofocus: fixed focus, 1/metres (default 1.0 = 1 m); "
-                           "use the value you calibrated with")
-    live.add_argument("--no-thread", action="store_true", help="capture and match in turn")
+    live = parser.add_argument_group("live")
+    live.add_argument("--live", action="store_true", help="read from two cameras (or --replay)")
     live.add_argument("--headless", action="store_true", help="no window; for a Pi without a display")
     live.add_argument("--stream", type=int, default=None, metavar="PORT",
-                      help="serve the live view to a browser on this port, e.g. 8080")
+                      help="serve the live view and the robot API (/api/v1/...) on this port, e.g. 8080")
     live.add_argument("--save-dir", type=Path, default=None,
                       help="save depth PNGs here while running")
     live.add_argument("--save-every", type=float, default=1.0,
                       help="seconds between saved depth maps (default 1)")
     live.add_argument("--duration", type=float, default=None,
                       help="stop after this many seconds (default: run until Q or Ctrl+C)")
+    add_camera_args(parser)
+    add_robot_args(parser)
     return parser.parse_args(argv)
 
 
@@ -156,9 +154,11 @@ def run_files(args, calibration) -> int:
 
 def run_live(args, calibration) -> int:
     preset = get_preset(args.preset or "pi5")
-    pipeline = DepthPipeline(calibration, preset, args.min_distance, args.num_disparities, args.block_size)
-    width = args.width or calibration.image_size[0]
-    height = args.height or calibration.image_size[1]
+    pipeline = DepthPipeline(calibration, preset, args.min_distance, args.num_disparities, args.block_size,
+                             confidence=args.confidence)
+    camera = CameraModel.from_calibration(pipeline.calibration, UNIT_TO_M[args.unit])
+    scan = scan_config(args)
+    info = info_dict(camera, pipeline, preset.name)
     near = pipeline.closest_mm
     far = max(near * 6, 3000.0)
 
@@ -167,7 +167,8 @@ def run_live(args, calibration) -> int:
         from stereo_vision.stream import MjpegServer
 
         server = MjpegServer(args.stream, title=f"preset {preset.name}")
-        print("streaming at " + "  ".join(server.urls()))
+        print("live view at " + "  ".join(server.urls()))
+        print(f"robot API at .../api/v1/  (frame, obstacles, scan, depth.png, points.ply, events)")
         print("note: anyone on this network can open that address")
     show_window = not args.headless
     if args.save_dir:
@@ -176,9 +177,13 @@ def run_live(args, calibration) -> int:
     meter = RateMeter()
     started = last_save = last_print = time.monotonic()
     saved = 0
-    source = open_source(args.backend, args.left_index, args.right_index, width, height, args.fps,
-                         grey=True, threaded=not args.no_thread, fourcc=args.fourcc,
-                         focus_dioptres=args.focus)
+    source = open_frames(args, calibration)
+    recorder = None
+    if args.record is not None:
+        from stereo_vision.sources import Recorder
+
+        recorder = Recorder(args.record)
+        print(f"recording raw frames to {args.record}")
     print(f"{preset.name}: {pipeline.calibration.output_size[0]}x{pipeline.calibration.output_size[1]} "
           f"{pipeline.params.mode}, {pipeline.params.num_disparities} disparities, closest "
           f"{pipeline.closest_mm:.0f}; cameras {source.size[0]}x{source.size[1]}")
@@ -187,12 +192,21 @@ def run_live(args, calibration) -> int:
         with source:
             first = True
             while True:
-                frame = source.read()
+                try:
+                    frame = source.read()
+                except EOFError:
+                    print("end of recording")
+                    break
+                if recorder is not None:
+                    recorder.write(frame)
                 if first:
                     pipeline.check_size(frame)
                     first = False
                 result = pipeline.process(frame)
                 meter.tick(result.stage_ms)
+                if server is not None:
+                    server.publish_robot(build_robot_frame(result, camera, meter.frames, scan,
+                                                           UNIT_TO_M[args.unit]), info)
 
                 status = meter.line()
                 if frame.skew_ms is not None:
@@ -225,6 +239,8 @@ def run_live(args, calibration) -> int:
             cv2.destroyAllWindows()
         if server:
             server.close()
+        if recorder is not None:
+            recorder.close()
     print(f"{meter.frames} frames, {meter.fps:.1f} fps at the end" + (f", saved {saved} depth maps" if saved else ""))
     return 0
 

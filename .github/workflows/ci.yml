@@ -40,7 +40,7 @@ jobs:
           - name: ARM64, Pi OS Bookworm stack (Python 3.11, numpy 1.24, OpenCV 4.11)
             os: ubuntu-24.04-arm
             python-version: "3.11"
-            constraints: constraints-pi-bookworm.txt
+            constraints: constraints-numpy1.txt
             numpy: "1.24.*"
 
     steps:
@@ -163,3 +163,27 @@ jobs:
         run: |
           sudo deploy/pi/uninstall.sh --purge
           test ! -e /opt/ster-vis && test ! -e /etc/ster-vis && ! id ster-vis
+
+  ros2:
+    name: ROS 2 Jazzy node (official ros:jazzy container)
+    runs-on: ubuntu-latest
+    container: ros:jazzy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        shell: bash
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq python3-venv python3-pip libgl1 libglib2.0-0t64 \
+            ros-jazzy-tf2-ros-py ros-jazzy-sensor-msgs
+          source /opt/ros/jazzy/setup.bash
+          # ROS's Python message code is built against the system numpy 1.26,
+          # which is exactly what constraints-numpy1.txt is for.
+          python3 -m venv --system-site-packages /opt/venv
+          /opt/venv/bin/pip install --quiet -c constraints-numpy1.txt -e ".[dev]"
+          /opt/venv/bin/python -c "import cv2, numpy, rclpy; print('OpenCV', cv2.__version__, '| numpy', numpy.__version__, '| rclpy ok')"
+      - name: Test the node against real rclpy
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          /opt/venv/bin/python -m pytest tests/test_ros2.py tests/test_robot.py -v -p no:cacheprovider

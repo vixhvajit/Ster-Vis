@@ -17,6 +17,7 @@ from .calibration import StereoCalibration, rectify_pair
 from .config import SGBMParams
 from .depth import colorize_depth, disparity_to_depth
 from .disparity import build_matcher, valid_mask
+from .outputs import confidence_from_lr
 from .presets import Preset
 from .sources import StereoFrame
 
@@ -27,6 +28,8 @@ class DepthResult:
     disparity: np.ndarray   # pixels, 0 where unmatched
     depth_mm: np.ndarray    # NaN where unmatched
     stage_ms: dict[str, float]
+    confidence: np.ndarray | None = None  # 0-100 per pixel, when requested
+    timestamp: float | None = None        # capture time of the frame, seconds
 
 
 class DepthPipeline:
@@ -37,7 +40,9 @@ class DepthPipeline:
         min_distance_mm: float,
         num_disparities: int | None = None,
         block_size: int | None = None,
+        confidence: bool = False,
     ) -> None:
+        """``confidence`` adds a left-right consistency map, at about twice the matching cost."""
         self.raw_size = calibration.image_size
         self.calibration = preset.calibration(calibration)
         params = preset.params(self.calibration, min_distance_mm)
@@ -48,6 +53,11 @@ class DepthPipeline:
         self.params: SGBMParams = params
         self.maps = self.calibration.rectification_maps()
         self.matcher = build_matcher(params)
+        self.right_matcher = None
+        if confidence:
+            if not hasattr(cv2, "ximgproc"):
+                raise RuntimeError("confidence maps need opencv-contrib-python")
+            self.right_matcher = cv2.ximgproc.createRightMatcher(self.matcher)
         self.closest_mm = (
             self.calibration.focal_length_px * self.calibration.baseline / params.num_disparities
         )
@@ -81,7 +91,15 @@ class DepthPipeline:
         depth = disparity_to_depth(disparity, self.calibration.focal_length_px, self.calibration.baseline)
         depth[~np.isfinite(depth)] = np.nan
         timings["depth"] = (time.perf_counter() - start) * 1000
-        return DepthResult(left, disparity, depth, timings)
+
+        confidence = None
+        if self.right_matcher is not None:
+            start = time.perf_counter()
+            # The right-view matcher reports disparities as negative numbers.
+            right_disparity = -self.right_matcher.compute(right, left).astype(np.float32) / 16.0
+            confidence = confidence_from_lr(disparity, right_disparity)
+            timings["confidence"] = (time.perf_counter() - start) * 1000
+        return DepthResult(left, disparity, depth, timings, confidence, frame.timestamp)
 
 
 @dataclass

@@ -1,0 +1,14 @@
+# For Python environments whose system packages are built against numpy 1.x:
+#
+#   - Raspberry Pi OS Bookworm (Debian 12): python3-picamera2 uses numpy 1.24
+#   - ROS 2 Jazzy and newer on Ubuntu 24.04: rclpy's message code uses numpy 1.26
+#
+#   pip install -c constraints-numpy1.txt .
+#
+# Installing numpy 2 into a venv that shares those system packages breaks their
+# compiled parts at import time. OpenCV 4.12 and later need numpy 2, so this
+# pins 4.11.0.86, the last OpenCV that works with numpy 1.x (it has ARM64 wheels).
+# As constraints, these fix versions without adding anything to install; with
+# the system numpy already present, pip leaves it alone.
+opencv-contrib-python==4.11.0.86
+numpy>=1.23.5,<2

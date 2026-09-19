@@ -45,12 +45,15 @@ src/stereo_vision/
   presets.py         named speed/accuracy trade-offs
   sources.py         USB and Pi camera capture, threaded, with frame sync
   live.py            per-frame depth pipeline with stage timings
-  stream.py          MJPEG server for watching a headless Pi in a browser
+  stream.py          live view and robot HTTP API (/api/v1/...)
+  outputs.py         robot outputs: metres, point cloud, laser scan, obstacles
+  ros2.py            ROS 2 publisher: standard sensor_msgs topics and TF
   autocapture.py     saves calibration pairs without a key press
   benchmark.py       frame rate per preset, and accuracy against truth
   synthetic.py       virtual stereo rig that photographs the chessboard
   scene.py           ray-traced 3D scene with exact per-pixel depth
 deploy/pi/            installer, systemd service and settings for a Raspberry Pi
+examples/            robot client for the HTTP API
 docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
 ```
@@ -105,7 +108,8 @@ That installs the `ster-vis` command:
 | `ster-vis chessboard` | write a printable calibration target (PDF) |
 | `ster-vis capture` | capture calibration pairs; `--auto` for a headless Pi |
 | `ster-vis calibrate` | solve the rig from captured pairs |
-| `ster-vis depth` | depth from two images, or live from cameras |
+| `ster-vis depth` | depth from two images, or live; `--stream` also serves the robot API |
+| `ster-vis ros2` | run as a ROS 2 node: depth, point cloud, laser scan, TF |
 | `ster-vis view` | inspect a depth map: hover for mm, click to measure |
 | `ster-vis viewer` | open the browser viewer for point clouds and depth maps |
 | `ster-vis benchmark` | frame rate per preset on this machine |
@@ -294,7 +298,7 @@ inside the virtual environment. `ster-vis doctor --cameras` checks the whole
 setup and says how to fix anything missing.
 
 **On the older Bookworm release**, install with
-`pip install -c constraints-pi-bookworm.txt .` instead. Bookworm's picamera2 is
+`pip install -c constraints-numpy1.txt .` instead. Bookworm's picamera2 is
 built against numpy 1.24, and current OpenCV needs numpy 2, which can break
 it. The constraints file pins the last OpenCV that works with numpy 1. CI
 tests both stacks on ARM64.
@@ -428,6 +432,140 @@ CI runs this installer on ARM64 Ubuntu on every push: it verifies the unit
 with `systemd-analyze`, checks the service waits for a calibration, re-runs
 the installer to confirm settings survive, and uninstalls. It hasn't been run
 on a real Raspberry Pi yet.
+
+## Robot outputs
+
+Ster-Vis gives a robot the same kinds of data a commercial depth camera such as
+the ZED 2 does, in the standard units and frames robot software expects.
+There are two ways to get them: **ROS 2 topics**, or a plain **HTTP/JSON API**
+that any language or board can read.
+
+| Output | What it is | ROS 2 topic | HTTP |
+|---|---|---|---|
+| Depth | distance per pixel, metres | `depth/image` (32FC1) | `depth.npy`, `depth.png` (mm) |
+| Camera model | intrinsics of the depth image | `depth/camera_info` | `info` |
+| Point cloud | 3D point per pixel, metres, with intensity | `points` (PointCloud2) | `points.ply` |
+| Laser scan | nearest obstacle per bearing, from the depth | `scan` (LaserScan) | `scan` |
+| Obstacles | nearest distance overall and left/centre/right | `obstacles/{left,centre,right}` (Range) | `obstacles` |
+| Confidence | trust per pixel, 0-100 (`--confidence`) | `confidence/image` | `confidence.png` |
+| Image | rectified left image the depth lines up with | `left/image_rect` | `left.png` |
+| Transforms | robot base to camera | static TF | `info` |
+| Recording | raw frames for replay (`--record`, `--replay`) | – | – |
+
+Conventions are ROS's own: metres; the camera optical frame
+(`ster_vis_left_optical_frame`: x right, y down, z forward) for images and
+points; and a body frame (`ster_vis_link`: x forward, y left, z up) for the
+scan and obstacles, where positive bearings are to the left.
+
+The laser scan flattens the depth into the 2D ranges that navigation stacks
+such as Nav2 and SLAM Toolbox consume. It keeps only points at the heights
+your robot can hit, set with `--scan-min-height` and `--scan-max-height`
+relative to the camera, so the floor and ceiling don't count as obstacles.
+Bearings with nothing in range read infinity; bearings the camera couldn't
+see read NaN, so "clear" and "don't know" stay distinguishable.
+
+Every output was checked against ray-traced ground truth, using a synthetic
+scene and a perfect calibration so any error is in the output code. The point
+cloud was within 17 mm median (about 1% at 1.5 m), the laser scan within
+14 mm median, and the nearest obstacle within about 1 mm. The robot outputs
+add about 2 ms a frame at the `pi5` preset on the development laptop. The point cloud is only built when
+something asks for it.
+
+### Over HTTP, from any language
+
+```bash
+ster-vis depth --live --headless --stream 8080
+```
+
+The live view is then at `http://<pi-name>.local:8080/`, and the data under
+`/api/v1/`:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/v1/info` | camera model, units, frames, preset (JSON) |
+| `GET /api/v1/frame` | latest summary: obstacles, scan, timings (JSON) |
+| `GET /api/v1/obstacles` | nearest obstacle and per-sector distances (JSON) |
+| `GET /api/v1/scan` | laser scan, the same fields as `sensor_msgs/LaserScan` (JSON) |
+| `GET /api/v1/depth.npy` | depth as float32 metres, NaN = unknown |
+| `GET /api/v1/depth.png` | depth as a 16-bit PNG in millimetres, 0 = unknown |
+| `GET /api/v1/points.ply` | point cloud, binary PLY; `?step=2` thins it 4× |
+| `GET /api/v1/confidence.png` | confidence 0-100 (with `--confidence`) |
+| `GET /api/v1/left.png` | the rectified left image |
+| `GET /api/v1/events` | every frame's summary, pushed as it's ready (Server-Sent Events; `?hz=5` caps the rate) |
+
+Everything is encoded only when asked for, so unused endpoints cost nothing.
+Responses allow cross-origin reads, so browser dashboards work too.
+
+```bash
+curl http://raspberrypi.local:8080/api/v1/obstacles
+```
+
+```json
+{"sequence": 105, "timestamp": 1790000000.12, "nearest_m": 0.6934, "nearest_bearing_deg": 4.28,
+ "sectors_m": {"left": 1.0729, "centre": 0.6934, "right": 0.8032}, ...}
+```
+
+[`examples/http_client.py`](examples/http_client.py) follows the event
+stream and warns when something is close, using only the Python standard
+library:
+
+```bash
+python examples/http_client.py http://raspberrypi.local:8080 --stop-at 0.5
+```
+
+Like any network camera without access control, the API has no password.
+Anyone on the network can read it.
+
+### As a ROS 2 node
+
+Needs ROS 2 **Jazzy or newer** (Ubuntu 24.04), since Ster-Vis requires Python
+3.11+ and Humble's is 3.10.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+python3 -m venv --system-site-packages .venv   # so the venv sees rclpy
+source .venv/bin/activate
+pip install -c constraints-numpy1.txt .
+ster-vis ros2 --parent-frame base_link --mount 0.10 0 0.30 0 0 0
+```
+
+`--mount` is the camera's position (metres) and orientation (radians) on the
+parent frame. It becomes a static TF, so Nav2 and RViz place the data
+correctly. Anything after `--ros-args` passes through to ROS, for example
+`--ros-args -r __ns:=/robot/front_camera`.
+
+`constraints-numpy1.txt` matters: ROS's Python message code is built against
+the system numpy 1.26 and breaks if pip installs numpy 2 over it. Topics use
+reliable QoS, which RViz subscribes to by default and Nav2's best-effort
+subscriptions accept.
+
+CI runs the node inside the official `ros:jazzy` container and checks every
+topic's encoding, size and values, the TF chain through a real `tf2` buffer,
+and the `ster-vis ros2` command as a separate process.
+
+### Record and replay
+
+```bash
+ster-vis depth --live --headless --record run1/          # save raw frames
+ster-vis ros2 --replay run1/ --loop                      # play them back as a camera
+```
+
+Recordings are lossless PNG pairs plus a CSV of capture times and camera
+skew, so a replay reproduces the original depth exactly. They're useful for
+developing robot behaviour without hardware. `--replay` also accepts a
+calibration capture folder.
+
+### Not included (yet)
+
+The ZED also does visual-inertial tracking, spatial mapping and object
+detection, using its built-in IMU and an NVIDIA GPU. Ster-Vis doesn't. On a
+ROS robot, existing packages fill those gaps from these outputs:
+`rtabmap_ros` or `slam_toolbox` for mapping and localisation, and any
+detector on `left/image_rect`.
+
+Per-pixel surface normals are left out on purpose. Tested against truth, SGBM
+depth at a 60 mm baseline was too noisy for them: even smoothed, they were
+21° off on a flat wall at 2.2 m. Fit planes to the point cloud instead.
 
 ## Viewing results
 
@@ -603,7 +741,9 @@ python -m pytest
 ```
 
 No camera needed. The suite renders chessboards and a 3D scene with known
-geometry, runs the real pipeline on them and checks the answers. The Pi camera
+geometry, runs the real pipeline on them and checks the answers, including the
+robot outputs' geometry and every HTTP endpoint. The ROS 2 tests run
+wherever rclpy is installed; CI runs them in the official `ros:jazzy` container. The Pi camera
 code is tested against a stand-in for picamera2 that reproduces its YUV
 layout, timestamps, sync handshake and request lifecycle. CI runs everything
 on Linux, Windows and ARM64, the Pi 5's architecture. That includes

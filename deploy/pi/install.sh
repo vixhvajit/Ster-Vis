@@ -72,7 +72,7 @@ echo "==> Installing the ster-vis package"
 if [ "$CODENAME" = "bookworm" ]; then
     # Bookworm's picamera2 is built against numpy 1.x; see the constraints file.
     "$PREFIX/venv/bin/python" -m pip install --quiet --upgrade \
-        -c "$REPO/constraints-pi-bookworm.txt" "$REPO"
+        -c "$REPO/constraints-numpy1.txt" "$REPO"
 else
     "$PREFIX/venv/bin/python" -m pip install --quiet --upgrade "$REPO"
 fi
