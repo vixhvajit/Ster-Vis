@@ -33,12 +33,46 @@ src/stereo_vision/
   calibration.py   corner detection, stereo solve, rectification maps
   disparity.py     StereoSGBM matcher, optional WLS filter, colorizing
   depth.py         disparity to depth, point cloud, PLY export
+  pattern.py       chessboard target as a true-scale PDF or a raster
 scripts/
-  capture_pairs.py capture board pairs from two cameras
-  calibrate.py     solve the rig and write calib/stereo.npz
-  run_disparity.py rectify, match, save a depth map or point cloud
+  make_chessboard.py write a printable calibration target
+  capture_pairs.py   capture board pairs from two cameras
+  calibrate.py       solve the rig and write calib/stereo.npz
+  run_disparity.py   rectify, match, save a depth map or point cloud
+docs/              printable calibration targets
 tests/             runs without hardware
 ```
+
+## Hardware
+
+Two cameras, ideally the same model, bolted to one rigid bar and pointing the
+same way. The spacing between them, the **baseline**, is your choice. Nothing
+in the code assumes a value, because calibration measures it. Recalibrate
+whenever you change it.
+
+A wider baseline makes far objects more precise but pushes the closest
+measurable distance further out:
+
+| Baseline | Closest usable distance | Depth error at 2 m |
+|---|---|---|
+| 3 cm | 16 cm | ±4.8 cm |
+| 6 cm | 33 cm | ±2.4 cm |
+| 12 cm | 66 cm | ±1.2 cm |
+| 20 cm | 1.1 m | ±0.7 cm |
+
+These numbers assume a 700 px focal length, 128 disparities and quarter-pixel
+matching accuracy. They follow from:
+
+```
+closest distance = f * B / num_disparities
+depth error      = Z^2 * 0.25 / (f * B)
+```
+
+The error grows with the square of distance, so doubling range costs four
+times the precision. Choose the baseline for the distance you care about most.
+Around 6 cm suits a desk or arm's length, 12-20 cm suits a room or a robot
+looking several metres ahead. You can also get closer by raising
+`--num-disparities`, though matching slows down.
 
 ## Setup
 
@@ -53,9 +87,35 @@ disparity filter lives in the contrib `ximgproc` module.
 
 ## Usage
 
-### 1. Capture calibration pairs
+### 0. Print the calibration target
 
-Print a chessboard, glue it to something rigid, and measure one square.
+A ready-made board matches the script defaults of 9x6 inner corners and 25 mm
+squares:
+
+- **[chessboard_9x6_25mm_a4.pdf](docs/chessboard_9x6_25mm_a4.pdf)** for A4
+- **[chessboard_9x6_25mm_letter.pdf](docs/chessboard_9x6_25mm_letter.pdf)** for US Letter
+
+When printing:
+
+1. Set the scale to **100% / Actual size** and turn off "Fit to page". Fitting
+   the page shrinks the squares, and every depth reading comes out scaled by
+   the same factor.
+2. Check the 100 mm scale bar with a ruler, then measure one square. If it
+   isn't exactly 25.0 mm, pass the measured value to `--square-size`.
+3. Glue it flat to foam board, acrylic or stiff cardboard. A board that bends
+   ruins the calibration.
+4. Matte paper is better than glossy, because glare hides corners.
+
+For another size or paper, generate one:
+
+```powershell
+python scripts/make_chessboard.py --columns 9 --rows 6 --square-mm 20 --paper letter
+```
+
+Bigger squares are easier to detect from far away. If the board doesn't fit
+the page, the script tells you so.
+
+### 1. Capture calibration pairs
 
 ```powershell
 python scripts/capture_pairs.py --left-index 0 --right-index 1 --columns 9 --rows 6

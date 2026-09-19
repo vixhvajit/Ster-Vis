@@ -137,3 +137,36 @@ class TestCalibrationRoundTrip:
         assert loaded.baseline == pytest.approx(60.0)
         assert loaded.focal_length_px == pytest.approx(500.0)
         assert np.allclose(loaded.Q, np.eye(4))
+
+
+class TestCalibrationTarget:
+    def test_opencv_finds_every_corner_on_the_default_board(self):
+        import cv2
+
+        from stereo_vision.calibration import find_corners
+        from stereo_vision.pattern import render_chessboard
+
+        board = BoardSpec()
+        image = cv2.cvtColor(render_chessboard(board), cv2.COLOR_GRAY2BGR)
+        corners = find_corners(image, board)
+
+        assert corners is not None
+        assert len(corners) == board.corner_count
+
+    def test_pdf_is_true_scale_on_a4(self, tmp_path):
+        from stereo_vision.pattern import MM_TO_PT, write_chessboard_pdf
+
+        data = write_chessboard_pdf(tmp_path / "board.pdf", BoardSpec()).read_bytes()
+
+        assert data.startswith(b"%PDF-1.4")
+        assert data.rstrip().endswith(b"%%EOF")
+        assert b"/MediaBox [0 0 841.890 595.276]" in data
+        # 10 x 7 squares at 25 mm, half of them black.
+        square = f"{25.0 * MM_TO_PT:.3f} {25.0 * MM_TO_PT:.3f} re".encode()
+        assert data.count(square) == 35
+
+    def test_rejects_a_board_too_big_for_the_page(self, tmp_path):
+        from stereo_vision.pattern import write_chessboard_pdf
+
+        with pytest.raises(ValueError, match="margin"):
+            write_chessboard_pdf(tmp_path / "big.pdf", BoardSpec(square_size=30.0))
