@@ -242,7 +242,9 @@ python scripts/view_depth.py output/cloud.ply
 
 Open3D is optional because it pulls in about 50 packages. It has wheels for
 Windows, macOS, Linux and 64-bit ARM Linux, so it installs on a Raspberry Pi 5
-too.
+too. Site: [open3d.org](https://www.open3d.org), source:
+[isl-org/Open3D](https://github.com/isl-org/Open3D), releases:
+[GitHub releases](https://github.com/isl-org/Open3D/releases) (MIT license).
 
 ### MeshLab or CloudCompare — full 3D tools
 
@@ -256,11 +258,30 @@ cleaning them up and meshing.
 | macOS | `brew install --cask meshlab` | `brew install --cask cloudcompare` |
 | Ubuntu, Debian, Raspberry Pi OS | `sudo apt install meshlab` | `sudo apt install cloudcompare` |
 | Any Linux (Flatpak) | `flatpak install flathub net.meshlab.MeshLab` | `flatpak install flathub org.cloudcompare.CloudCompare` |
-| Direct download | [meshlab.net](https://www.meshlab.net/#download) | [cloudcompare.org](https://www.cloudcompare.org/release/) |
+| Official site | [meshlab.net](https://www.meshlab.net/#download) | [cloudcompare.org](https://cloudcompare.org) |
+| Release downloads | [GitHub releases](https://github.com/cnr-isti-vclab/meshlab/releases) | [GitHub releases](https://github.com/CloudCompare/CloudCompare/releases) |
+| Source code | [cnr-isti-vclab/meshlab](https://github.com/cnr-isti-vclab/meshlab) | [CloudCompare/CloudCompare](https://github.com/CloudCompare/CloudCompare) |
+| License | [GPL-3.0](https://github.com/cnr-isti-vclab/meshlab/blob/main/LICENSE.txt) | [GPL-2.0 or later](https://github.com/CloudCompare/CloudCompare/blob/master/license.txt) |
+
+Versions current as of September 2026: MeshLab 2025.07, CloudCompare 2.13.2.
 
 Installers aren't bundled in this repo: they are 100+ MB each, GPL-licensed,
 and would go stale. The package managers above always fetch the current
 release.
+
+### Licenses of the viewing tools
+
+None of these tools is part of Ster-Vis. Ster-Vis only writes standard `.ply`
+and `.png` files, which any of them can open, so Ster-Vis stays under
+Apache-2.0 whichever you use.
+
+| Tool | License | Source |
+|---|---|---|
+| MeshLab | GPL-3.0 | <https://github.com/cnr-isti-vclab/meshlab> |
+| CloudCompare | GPL-2.0 or later | <https://github.com/CloudCompare/CloudCompare> |
+| Open3D (optional pip install) | MIT | <https://github.com/isl-org/Open3D> |
+| OpenCV (required) | Apache-2.0 | <https://github.com/opencv/opencv> |
+| NumPy (required) | BSD-3-Clause | <https://github.com/numpy/numpy> |
 
 ## Try it without cameras
 
