@@ -122,6 +122,14 @@ jobs:
           test -f docs/chessboard_9x6_25mm_a4.pdf
           /tmp/clean/bin/ster-vis check --keep
           /tmp/clean/bin/ster-vis doctor --calibration output/synthetic/stereo.npz
+      # A real round trip through ster-vis upgrade: the published 0.1.0 wheel
+      # is downloaded, checked against SHA256SUMS and installed over this build
+      # by the console script itself, as on a Pi.
+      - name: Roll back to a published release with ster-vis upgrade
+        run: |
+          /tmp/clean/bin/ster-vis upgrade --check
+          /tmp/clean/bin/ster-vis upgrade --to 0.1.0
+          /tmp/clean/bin/ster-vis --version | grep -qx "ster-vis 0.1.0"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

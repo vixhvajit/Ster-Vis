@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -83,6 +84,16 @@ def expected_hashes(sums: str) -> dict[str, str]:
     return hashes
 
 
+def launched_from_windows_exe() -> bool:
+    """True when running as Windows' ster-vis.exe launcher rather than python -m.
+
+    Windows will not let pip replace a program while it runs, so an upgrade
+    started from ster-vis.exe gets the process killed partway through the
+    install. Run through python -m, the interpreter holds nothing pip changes.
+    """
+    return os.name == "nt" and not sys.argv[0].lower().endswith(".py")
+
+
 def needs_numpy1() -> bool:
     try:
         import numpy
@@ -120,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"ster-vis {current} is newer than the latest release ({target}): a development build")
         return 0
+
+    if launched_from_windows_exe():
+        command = subprocess.list2cmdline([sys.executable, "-m", "stereo_vision", "upgrade", *(argv or [])])
+        print("On Windows, ster-vis.exe cannot replace itself while it runs. Run this instead:")
+        print(f"  {command}")
+        return 1
 
     if args.to is None and not newer:
         print(f"already up to date (ster-vis {current}; latest release {target})")
@@ -164,7 +181,9 @@ def main(argv: list[str] | None = None) -> int:
               + f" from {current} to {target} ...")
         result = subprocess.run(command)
     if result.returncode != 0:
-        print("pip failed; the previous version is still installed")
+        # pip may have stopped partway, so do not claim either version is intact.
+        print(f"pip failed (exit {result.returncode}); check what is installed with: ster-vis --version")
+        print(f"  to retry: {subprocess.list2cmdline([sys.executable, '-m', 'stereo_vision', 'upgrade', *(argv or [])])}")
         return result.returncode
     print(f"installed ster-vis {target}")
     print("  on a Pi running the service: sudo systemctl restart ster-vis")

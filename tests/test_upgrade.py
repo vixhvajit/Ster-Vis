@@ -49,6 +49,7 @@ def github(monkeypatch):
     monkeypatch.setattr(upgrade.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(upgrade.subprocess, "run", lambda command: state["pip"].append(command) or Done())
     monkeypatch.setattr(upgrade, "needs_numpy1", lambda: False)
+    monkeypatch.setattr(upgrade, "launched_from_windows_exe", lambda: False)
     return state
 
 
@@ -147,3 +148,35 @@ def test_pins_match_the_constraints_file():
 def test_unknown_version_is_a_clear_error(github, capsys):
     assert upgrade.main(["--to", "9.9.9"]) == 1
     assert "no release 9.9.9" in capsys.readouterr().out
+
+
+def test_windows_exe_points_to_python_m_instead_of_breaking_itself(github, monkeypatch, capsys):
+    """Found by a real rollback: Windows kills ster-vis.exe when pip replaces it."""
+    monkeypatch.setattr(upgrade, "launched_from_windows_exe", lambda: True)
+    newer = bump(__version__, 2)
+    github["releases"][newer] = release(newer)
+    github["latest"] = newer
+    assert upgrade.main(["--to", newer]) == 1
+    out = capsys.readouterr().out
+    assert "-m stereo_vision upgrade --to" in out
+    assert github["pip"] == []  # stopped before downloading or installing
+
+
+def test_check_works_from_the_windows_exe(github, monkeypatch, capsys):
+    monkeypatch.setattr(upgrade, "launched_from_windows_exe", lambda: True)
+    github["releases"][__version__] = release(__version__)
+    github["latest"] = __version__
+    assert upgrade.main(["--check"]) == 0
+
+
+def test_a_failed_pip_does_not_claim_the_old_version_survived(github, monkeypatch, capsys):
+    class Failed:
+        returncode = 1
+
+    monkeypatch.setattr(upgrade.subprocess, "run", lambda command: Failed())
+    newer = bump(__version__, 2)
+    github["releases"][newer] = release(newer)
+    github["latest"] = newer
+    assert upgrade.main([]) == 1
+    out = capsys.readouterr().out
+    assert "still installed" not in out and "ster-vis --version" in out

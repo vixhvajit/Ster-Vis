@@ -60,6 +60,10 @@ earlier version:
 ster-vis upgrade --to 0.1.0
 ```
 
+On Windows, run it as `python -m stereo_vision upgrade` instead. The
+`ster-vis.exe` launcher can't replace itself while it runs; from 2.0.1 it says
+so rather than trying.
+
 On a Pi installed with `deploy/pi/install.sh`, run it with `sudo` and restart
 the service:
 
@@ -71,7 +75,7 @@ sudo systemctl restart ster-vis
 Or update the checkout and re-run the installer, which keeps your settings:
 
 ```bash
-git fetch --tags && git checkout v2.0.0
+git fetch --tags && git checkout v2.0.1      # the version you want
 sudo deploy/pi/install.sh
 ```
 
@@ -81,7 +85,7 @@ Recalibrate only if the changelog says so.
 `ster-vis` 0.1.0 has no `upgrade` command. Upgrade from it with pip once:
 
 ```bash
-pip install https://github.com/vixhvajit/Ster-Vis/releases/download/v2.0.0/ster_vis-2.0.0-py3-none-any.whl
+pip install https://github.com/vixhvajit/Ster-Vis/releases/download/v2.0.1/ster_vis-2.0.1-py3-none-any.whl
 ```
 
 ## Reporting a bug
@@ -102,9 +106,9 @@ Releases are built and published by
    bottom.
 2. Set `__version__` in `src/stereo_vision/__init__.py` to `X.Y.Z`.
 3. Commit (`release: X.Y.Z`), push, and wait for CI to pass.
-4. Optionally, run the release workflow by hand with *dry run* on
-   (Actions → Release → Run workflow). It builds and checks everything
-   without publishing.
+4. Optionally, do a dry run: run the release workflow by hand (Actions →
+   Release → Run workflow, or `gh workflow run release.yml`). Run by hand, it
+   tests, builds and checks everything but doesn't publish.
 5. Tag and push:
 
    ```bash

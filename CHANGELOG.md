@@ -11,6 +11,19 @@ release notes, so write entries for the people who install it.
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-19
+
+### Fixed
+
+- **`ster-vis upgrade` on Windows.** Started from `ster-vis.exe`, it had pip
+  overwrite the program that was running, and Windows killed it partway
+  through the install. It now stops before downloading and prints the
+  equivalent `python -m stereo_vision upgrade ...` command, which works.
+  Linux, macOS and Raspberry Pi were not affected.
+- When pip failed, `ster-vis upgrade` claimed the previous version was still
+  installed, which a partial install can make untrue. It now says to check
+  with `ster-vis --version`, and how to retry.
+
 ## [2.0.0] - 2026-09-19
 
 Ster-Vis becomes a depth camera for robots: the same kinds of output as a
@@ -87,6 +100,7 @@ First release.
 - Synthetic ground truth: a virtual stereo rig and a ray-traced scene, so the
   whole pipeline is tested without cameras.
 
-[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/vixhvajit/Ster-Vis/compare/v0.1.0...v2.0.0
 [0.1.0]: https://github.com/vixhvajit/Ster-Vis/releases/tag/v0.1.0
