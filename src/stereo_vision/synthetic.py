@@ -156,12 +156,17 @@ def random_poses(
     count: int,
     rng: np.random.Generator,
     edge_margin: float = 30.0,
-    max_attempts: int = 5000,
+    max_attempts: int = 20000,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Board poses spread over depth, tilt and frame position.
+    """Board poses spread over depth, tilt and the whole frame.
 
     Each pose is kept only if every corner lands inside both images with a
     margin, which is what a person does when capturing real pairs.
+
+    The lateral spread is wide on purpose. Poses bunched near the centre
+    covered only ~40% of the frame, and the distortion model then
+    extrapolated so badly that edge pixels were off by up to 15 px vertically
+    after rectification, while the reported RMS looked better than ever.
     """
     centre = np.array(
         [board.columns - 1, board.rows - 1, 0.0]
@@ -174,9 +179,9 @@ def random_poses(
             break
         tilt = np.deg2rad(rng.uniform([-35, -35, -20], [35, 35, 20]))
         rotation, _ = cv2.Rodrigues(tilt)
-        depth = rng.uniform(420.0, 900.0)
-        spread = depth * 0.35
-        position = np.array([rng.uniform(-spread, spread) + 30.0, rng.uniform(-spread, spread) * 0.6, depth])
+        depth = rng.uniform(420.0, 1100.0)
+        spread = depth * 0.75
+        position = np.array([rng.uniform(-spread, spread) + 30.0, rng.uniform(-spread, spread) * 0.55, depth])
         tvec = (position - rotation @ centre).reshape(3, 1)
         rvec = cv2.Rodrigues(rotation)[0]
 
@@ -201,7 +206,7 @@ def random_poses(
 
 
 def render_pairs(
-    rig: VirtualRig, board: BoardSpec, count: int = 15, seed: int = 0
+    rig: VirtualRig, board: BoardSpec, count: int = 25, seed: int = 0
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
     """Render ``count`` calibration pairs and return them with their true poses."""
     rng = np.random.default_rng(seed)
@@ -248,17 +253,22 @@ def evaluate(calibration, rig: VirtualRig, board: BoardSpec, holdout_seed: int =
     metrics["baseline_error_pct"] = 100.0 * abs(calibration.baseline - rig.baseline) / rig.baseline
     metrics["rotation_error_deg"] = _rotation_angle_deg(calibration.R, rig.R)
 
-    lefts, rights, poses = render_pairs(rig, board, count=holdout_count, seed=holdout_seed)
+    # Holdout poses reach the frame edges like the calibration poses do, so
+    # some fall partly outside the cropped rectified view. Render spares and
+    # score the first ones that stay fully visible after rectification.
+    lefts, rights, poses = render_pairs(rig, board, count=holdout_count * 4, seed=holdout_seed)
     maps = calibration.rectification_maps()
     row_errors: list[np.ndarray] = []
     depth_errors: list[np.ndarray] = []
 
     for left, right, (rvec, tvec) in zip(lefts, rights, poses):
+        if len(row_errors) == holdout_count:
+            break
         left_rect, right_rect = rectify_pair(left, right, maps)
         left_corners = find_corners(left_rect, board)
         right_corners = find_corners(right_rect, board)
         if left_corners is None or right_corners is None:
-            raise RuntimeError("board not found in a rectified holdout pair")
+            continue
         left_corners = left_corners.reshape(-1, 2)
         right_corners = right_corners.reshape(-1, 2)
 
@@ -277,6 +287,10 @@ def evaluate(calibration, rig: VirtualRig, board: BoardSpec, holdout_seed: int =
 
         depth_errors.append(100.0 * np.abs(estimated_depth - true_depth) / true_depth)
 
+    if len(row_errors) < holdout_count:
+        raise RuntimeError(
+            f"only {len(row_errors)} of {holdout_count} holdout boards were fully visible after rectification"
+        )
     rows = np.concatenate(row_errors)
     depths = np.concatenate(depth_errors)
     metrics["rectified_row_error_mean_px"] = float(rows.mean())
@@ -290,12 +304,13 @@ def evaluate(calibration, rig: VirtualRig, board: BoardSpec, holdout_seed: int =
 # a real bug in calibration, rectification or triangulation cannot hide under
 # them.
 #
-# Rotation is the loosest on purpose. With 15 noisy views each principal point
-# is only pinned to 2-3 px, and at f = 700 px that alone tilts the recovered
-# rig by atan(3 / 700), about 0.25 degrees. The error is shared consistently
-# by R and the intrinsics, so it cancels in rectification and depth, which is
-# why those two are held much tighter. 0.5 degrees still catches a transposed
-# or inverted R, which shows up as more than 2 degrees on this rig.
+# Rotation is the loosest on purpose. Each principal point is only pinned to a
+# pixel or so (2-3 px with 15 centred views), and at f = 700 px a 3 px error
+# alone tilts the recovered rig by atan(3 / 700), about 0.25 degrees. The error
+# is shared consistently by R and the intrinsics, so it largely cancels in
+# rectification and depth, which is why those two are held much tighter. 0.5
+# degrees still catches a transposed or inverted R, which shows up as more
+# than 2 degrees on this rig.
 TOLERANCES = {
     "rms_px": 0.5,
     "left_focal_error_pct": 1.0,
@@ -308,3 +323,29 @@ TOLERANCES = {
     "depth_error_mean_pct": 1.0,
     "depth_error_max_pct": 3.0,
 }
+
+
+def true_calibration(rig: VirtualRig, alpha: float = 0.0):
+    """The calibration a perfect solve would return for this rig.
+
+    Useful for separating matcher error from calibration error: run the same
+    images through this and through an estimated calibration, and the
+    difference is what calibration costs.
+    """
+    from .calibration import StereoCalibration
+
+    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
+        rig.left.camera_matrix, rig.left.dist_coeffs,
+        rig.right.camera_matrix, rig.right.dist_coeffs,
+        rig.image_size, rig.R, rig.T,
+        flags=cv2.CALIB_ZERO_DISPARITY, alpha=alpha,
+    )
+    return StereoCalibration(
+        image_size=rig.image_size,
+        camera_matrix_left=rig.left.camera_matrix,
+        dist_coeffs_left=rig.left.dist_coeffs,
+        camera_matrix_right=rig.right.camera_matrix,
+        dist_coeffs_right=rig.right.dist_coeffs,
+        R=rig.R, T=rig.T, R1=R1, R2=R2, P1=P1, P2=P2, Q=Q,
+        rms=0.0, coverage_pct=100.0,
+    )

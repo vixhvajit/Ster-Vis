@@ -48,7 +48,7 @@ def unit(key: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pairs", type=int, default=15)
+    parser.add_argument("--pairs", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--workdir", type=Path, default=ROOT / "output" / "synthetic")
     parser.add_argument(

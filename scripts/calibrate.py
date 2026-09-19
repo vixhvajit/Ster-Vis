@@ -14,7 +14,11 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from stereo_vision.calibration import calibrate_stereo, rectify_pair  # noqa: E402
+from stereo_vision.calibration import (  # noqa: E402
+    COVERAGE_WARN_PCT,
+    calibrate_stereo,
+    rectify_pair,
+)
 from stereo_vision.capture import load_pairs  # noqa: E402
 from stereo_vision.config import BoardSpec  # noqa: E402
 
@@ -81,8 +85,17 @@ def main() -> int:
     print(f"reprojection RMS: {calibration.rms:.4f} px")
     print(f"baseline: {calibration.baseline:.2f} (same unit as --square-size)")
     print(f"rectified focal length: {calibration.focal_length_px:.2f} px")
+    print(f"frame coverage: {calibration.coverage_pct:.0f}% (aim for 75% or more)")
     if calibration.rms > 1.0:
         print("RMS above 1.0 px: recapture with sharper, better-spread board views")
+    if calibration.coverage_pct < COVERAGE_WARN_PCT:
+        print(
+            f"WARNING: the boards reached only {calibration.coverage_pct:.0f}% of the frame.\n"
+            "  A low RMS does not mean a good calibration: it only measures the fit\n"
+            "  where the boards were. Depth near the uncovered edges can be badly\n"
+            "  wrong. Recapture with the board in the corners and along the edges;\n"
+            "  capture_pairs.py shows a live coverage grid to help."
+        )
 
     saved = calibration.save(args.output)
     print(f"wrote {saved}")

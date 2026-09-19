@@ -25,12 +25,12 @@ def rig():
 @pytest.mark.parametrize("seed", [0, 1])
 def test_calibration_recovers_the_true_rig(rig, seed):
     board = BoardSpec()
-    lefts, rights, _ = render_pairs(rig, board, count=15, seed=seed)
+    lefts, rights, _ = render_pairs(rig, board, count=25, seed=seed)
 
     calibration, used = calibrate_stereo(lefts, rights, board)
     metrics = evaluate(calibration, rig, board)
 
-    assert len(used) == 15
+    assert len(used) == 25
     failures = {k: round(metrics[k], 4) for k, limit in TOLERANCES.items() if metrics[k] > limit}
     assert not failures, f"out of tolerance: {failures}"
 
@@ -38,7 +38,7 @@ def test_calibration_recovers_the_true_rig(rig, seed):
 def test_corner_refinement_stays_on_small_tilted_boards(rig):
     """No corner may jump to a neighbour, even on the hardest views."""
     board = BoardSpec()
-    lefts, rights, poses = render_pairs(rig, board, count=15, seed=1)
+    lefts, rights, poses = render_pairs(rig, board, count=25, seed=1)
 
     worst = 0.0
     for left, right, (rvec, tvec) in zip(lefts, rights, poses):

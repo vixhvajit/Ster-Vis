@@ -13,6 +13,13 @@ from .config import BoardSpec
 CORNER_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 STEREO_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-5)
 
+# The frame is split into this many columns and rows to measure how much of it
+# the calibration boards reached.
+COVERAGE_GRID = (8, 6)
+# Below this share of cells, rectification near the uncovered edges can be off
+# by many pixels even when the RMS looks excellent.
+COVERAGE_WARN_PCT = 65.0
+
 
 @dataclass
 class StereoCalibration:
@@ -31,6 +38,9 @@ class StereoCalibration:
     P2: np.ndarray
     Q: np.ndarray
     rms: float
+    # Share of the frame, in percent, that board corners reached in the worse
+    # of the two cameras. NaN for calibrations saved before it was recorded.
+    coverage_pct: float = float("nan")
 
     @property
     def baseline(self) -> float:
@@ -82,6 +92,7 @@ class StereoCalibration:
             P2=self.P2,
             Q=self.Q,
             rms=np.asarray(self.rms),
+            coverage_pct=np.asarray(self.coverage_pct),
         )
         return path
 
@@ -103,6 +114,7 @@ def load_calibration(path: str | Path) -> StereoCalibration:
             P2=data["P2"],
             Q=data["Q"],
             rms=float(data["rms"]),
+            coverage_pct=float(data["coverage_pct"]) if "coverage_pct" in data else float("nan"),
         )
 
 
@@ -249,8 +261,36 @@ def calibrate_stereo(
         P2=P2,
         Q=Q,
         rms=float(rms),
+        coverage_pct=min(
+            frame_coverage(left_points, image_size)[0],
+            frame_coverage(right_points, image_size)[0],
+        ),
     )
     return calibration, used
+
+
+def frame_coverage(
+    image_points: list[np.ndarray],
+    image_size: tuple[int, int],
+    grid: tuple[int, int] = COVERAGE_GRID,
+) -> tuple[float, np.ndarray]:
+    """Share of the frame reached by detected corners, and which cells were reached.
+
+    The frame is divided into ``grid`` columns and rows; a cell counts once any
+    corner from any view lands in it. RMS cannot reveal poor coverage, because
+    it only measures the fit where the boards were. The distortion model is
+    unconstrained elsewhere and can extrapolate badly, which is invisible in
+    the RMS and ruinous for depth near the edges.
+    """
+    columns, rows = grid
+    width, height = image_size
+    covered = np.zeros((rows, columns), bool)
+    for points in image_points:
+        xy = points.reshape(-1, 2)
+        col = np.clip((xy[:, 0] / width * columns).astype(int), 0, columns - 1)
+        row = np.clip((xy[:, 1] / height * rows).astype(int), 0, rows - 1)
+        covered[row, col] = True
+    return float(100.0 * covered.mean()), covered
 
 
 def rectify_pair(
