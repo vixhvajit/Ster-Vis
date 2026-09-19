@@ -19,6 +19,7 @@ COMMANDS = {
     "viewer": ("viewer", "open the browser viewer for point clouds and depth maps"),
     "benchmark": ("benchmark", "frame rate per preset on this machine; --accuracy too"),
     "doctor": ("doctor", "check this install: versions, cameras, calibration"),
+    "upgrade": ("upgrade", "check for, verify and install another release"),
     "check": ("check", "calibration check against a virtual rig with known geometry"),
     "scene": ("scene", "depth map of a synthetic scene, scored against truth"),
 }

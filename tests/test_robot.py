@@ -133,6 +133,14 @@ class TestApi:
         assert json.loads(line[5:])["sequence"] == 7
         stream.close()
 
+    @pytest.mark.parametrize("query", ["points.ply?step=abc", "points.ply?step=0", "events?hz=abc", "events?hz=-1", "events?hz=nan"])
+    def test_malformed_parameters_get_400_not_a_crash(self, server, query):
+        with pytest.raises(urllib.error.HTTPError) as error:
+            self.get(server, query)
+        assert error.value.code == 400
+        # The server still answers afterwards.
+        assert json.loads(self.get(server, "frame")[1])["sequence"] == 7
+
     def test_no_data_yet_is_503_and_unknown_is_404(self):
         empty = MjpegServer(port=0)
         try:
@@ -181,3 +189,9 @@ def test_ros_mount_defaults_are_floats():
 
     args, _ = parse_args(["--calibration", "x.npz"])
     assert all(isinstance(v, float) for v in args.mount)
+
+
+@pytest.mark.parametrize("bad", [dict(beams=1), dict(min_height_m=0.5, max_height_m=0.1), dict(range_min_m=5, range_max_m=1)])
+def test_scan_settings_that_would_report_all_clear_are_refused(bad):
+    with pytest.raises(ValueError):
+        ScanConfig(**bad)

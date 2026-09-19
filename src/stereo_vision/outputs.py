@@ -225,6 +225,16 @@ class ScanConfig:
     range_min_m: float = 0.2
     range_max_m: float = 10.0
 
+    def __post_init__(self) -> None:
+        # An inverted band or range would silently report "all clear", which a
+        # robot would believe, so refuse it outright.
+        if self.beams < 2:
+            raise ValueError("the laser scan needs at least 2 beams")
+        if self.min_height_m >= self.max_height_m:
+            raise ValueError("scan min height must be below max height")
+        if not 0 <= self.range_min_m < self.range_max_m:
+            raise ValueError("scan range must satisfy 0 <= min < max")
+
 
 @dataclass
 class RobotFrame:

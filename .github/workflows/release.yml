@@ -1,0 +1,79 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds, tests and publishes that release. Running the
+# workflow by hand (Actions -> Release -> Run workflow) does everything except
+# publishing: a dry run to check a release before tagging it.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to create the GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OpenCV system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgl1 libglib2.0-0t64
+
+      - name: Check the version, the tag and the changelog agree
+        id: version
+        run: |
+          VERSION=$(python -c "import re, pathlib; print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/stereo_vision/__init__.py').read_text()).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match __version__ $VERSION"
+            exit 1
+          fi
+          python tools/release_notes.py "$VERSION" > notes.md
+          case "$VERSION" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+          echo "Releasing $VERSION"
+
+      - name: Run the tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m pytest
+
+      - name: Build
+        run: |
+          python -m build
+          cd dist && sha256sum ster_vis-* > ../SHA256SUMS && cd ..
+          cat SHA256SUMS
+          test -f "dist/ster_vis-${{ steps.version.outputs.version }}-py3-none-any.whl"
+
+      - name: Install the built wheel cleanly and check its version
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+          cd /tmp && /tmp/clean/bin/ster-vis --version | grep -qx "ster-vis ${{ steps.version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: |
+            dist/
+            SHA256SUMS
+            notes.md
+
+      - name: Publish the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLAGS=""
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then FLAGS="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag $FLAGS \
+            --title "Ster-Vis ${{ steps.version.outputs.version }}" \
+            --notes-file notes.md \
+            dist/*.whl dist/*.tar.gz SHA256SUMS

@@ -88,3 +88,35 @@ class TestViewerServer:
         finally:
             server.shutdown()
             server.server_close()
+
+
+class TestReleaseTooling:
+    """The release workflow depends on these; keep them honest."""
+
+    def notes(self):
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location("release_notes", Path("tools/release_notes.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module, Path("CHANGELOG.md").read_text(encoding="utf-8")
+
+    def test_changelog_has_notes_for_the_current_version(self):
+        module, changelog = self.notes()
+        body = module.section(changelog, __version__)
+        assert body.strip()
+
+    def test_a_section_stops_at_the_next_version_and_before_the_links(self):
+        module, changelog = self.notes()
+        oldest = module.section(changelog, "0.1.0")
+        assert "## [" not in oldest and "]: https://" not in oldest
+
+    def test_missing_versions_stop_the_release(self):
+        module, changelog = self.notes()
+        with pytest.raises(SystemExit):
+            module.section(changelog, "99.0.0")
+
+    def test_changelog_links_the_current_version(self):
+        _, changelog = self.notes()
+        assert f"[{__version__}]: https://github.com/vixhvajit/Ster-Vis/" in changelog

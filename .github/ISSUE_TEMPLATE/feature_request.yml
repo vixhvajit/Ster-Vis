@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest something Ster-Vis should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you need to do that you can't now?
+      description: Describe the goal (for example "my robot needs to know how far the floor drops away"), not only a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How might it work?
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Your setup
+      description: Board, cameras, robot software (ROS 2 or not).

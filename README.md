@@ -1,6 +1,7 @@
 # Ster-Vis
 
 [![CI](https://github.com/vixhvajit/Ster-Vis/actions/workflows/ci.yml/badge.svg)](https://github.com/vixhvajit/Ster-Vis/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vixhvajit/Ster-Vis)](https://github.com/vixhvajit/Ster-Vis/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Depth from a pair of cameras: calibrate the rig, rectify the views, match them,
@@ -53,6 +54,7 @@ src/stereo_vision/
   synthetic.py       virtual stereo rig that photographs the chessboard
   scene.py           ray-traced 3D scene with exact per-pixel depth
 deploy/pi/            installer, systemd service and settings for a Raspberry Pi
+tools/               release tooling (release notes from the changelog)
 examples/            robot client for the HTTP API
 docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
@@ -114,6 +116,7 @@ That installs the `ster-vis` command:
 | `ster-vis viewer` | open the browser viewer for point clouds and depth maps |
 | `ster-vis benchmark` | frame rate per preset on this machine |
 | `ster-vis doctor` | check an install: versions, cameras, calibration, throttling |
+| `ster-vis upgrade` | check for, verify and install another release (`--check`, `--to 2.0.0`) |
 | `ster-vis check`, `ster-vis scene` | try the pipeline on synthetic data with known truth |
 
 Each takes `--help`. Output files (calibration, depth maps) are written
@@ -133,6 +136,25 @@ python -m pytest
 
 `opencv-contrib-python` is used rather than the base package because the WLS
 disparity filter lives in the contrib `ximgproc` module.
+
+### Versions and upgrades
+
+Ster-Vis uses [semantic versioning](https://semver.org/): patch releases
+(`2.0.x`) only fix bugs, minor releases (`2.x.0`) add features without
+breaking anything, and only major releases (`x.0.0`) can change something you
+rely on. The promise covers the CLI, the HTTP API, ROS topics and file
+formats. Every change is in the [changelog](CHANGELOG.md).
+
+```bash
+ster-vis upgrade --check      # is there a newer release?
+ster-vis upgrade              # verify its checksum, then install it
+ster-vis upgrade --to 0.1.0   # install a specific version, e.g. to roll back
+```
+
+Calibrations from older versions keep working. [docs/RELEASING.md](docs/RELEASING.md)
+covers the full policy, which versions get fixes, upgrading a deployed Pi, and
+how releases and patches are made. Report bugs with the issue template; it
+asks for `ster-vis doctor` output.
 
 ## Usage
 

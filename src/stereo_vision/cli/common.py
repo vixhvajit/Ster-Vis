@@ -47,7 +47,10 @@ def add_robot_args(parser: argparse.ArgumentParser) -> None:
 
 
 def scan_config(args) -> ScanConfig:
-    return ScanConfig(args.scan_beams, args.scan_min_height, args.scan_max_height, 0.2, args.scan_range_max)
+    try:
+        return ScanConfig(args.scan_beams, args.scan_min_height, args.scan_max_height, 0.2, args.scan_range_max)
+    except ValueError as error:
+        raise SystemExit(f"ster-vis: {error}") from None
 
 
 def open_frames(args, calibration):
@@ -67,7 +70,11 @@ def open_frames(args, calibration):
 
 def info_dict(camera, pipeline, preset_name: str) -> dict:
     """What /api/v1/info reports: enough for a client to interpret everything else."""
+    from stereo_vision import __version__
+
     return {
+        "version": __version__,
+        "api": "v1",
         "camera": camera.as_dict(),
         "units": {"depth": "m", "depth.png": "mm", "points": "m", "scan": "m", "confidence": "0-100"},
         "frames": {

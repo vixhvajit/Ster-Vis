@@ -51,6 +51,24 @@ PAGE = """<!doctype html>
 API = "/api/v1/"
 
 
+class BadRequest(ValueError):
+    """A query parameter a client sent could not be used."""
+
+
+def query_number(query: dict, name: str, default: float, minimum: float, integer: bool = False) -> float:
+    """Read a numeric query parameter, rejecting junk instead of crashing on it."""
+    raw = query.get(name, [None])[0]
+    if raw is None:
+        return default
+    try:
+        value = int(raw) if integer else float(raw)
+    except ValueError:
+        raise BadRequest(f"{name} must be a{'n integer' if integer else ' number'}, got {raw!r}") from None
+    if value != value or value < minimum:  # NaN, or below the minimum
+        raise BadRequest(f"{name} must be at least {minimum:g}, got {raw!r}")
+    return value
+
+
 class MjpegServer:
     def __init__(self, port: int = 8080, max_fps: float = 10.0, quality: int = 80, title: str = "") -> None:
         self.max_fps = max_fps
@@ -100,7 +118,10 @@ class MjpegServer:
                     else:
                         self._send(jpeg, "image/jpeg")
                 elif path.startswith(API):
-                    self._api(path[len(API):], query)
+                    try:
+                        self._api(path[len(API):], query)
+                    except BadRequest as error:
+                        self.send_error(400, str(error))
                 else:
                     self.send_error(404)
 
@@ -143,10 +164,10 @@ class MjpegServer:
                 elif name == "points.ply":
                     from .outputs import ply_bytes
 
-                    step = max(1, int(query.get("step", ["1"])[0]))
+                    step = int(query_number(query, "step", 1, 1, integer=True))
                     self._send(ply_bytes(frame.points, frame.left, step), "application/octet-stream", api=True)
                 elif name == "events":
-                    self._events(float(query.get("hz", ["0"])[0]))
+                    self._events(query_number(query, "hz", 0.0, 0.0))
                 else:
                     self.send_error(404, "unknown endpoint; see /api/v1/info")
 

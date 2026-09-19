@@ -1,0 +1,16 @@
+# Weekly pull requests for dependency updates, so security and bug-fix
+# releases of what Ster-Vis builds on are picked up. CI tests each one.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # Keep to patches and minors of the pinned ranges; majors need a deliberate change.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

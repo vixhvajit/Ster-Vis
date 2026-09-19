@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work, crashes, or measures wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Fixed bugs ship as patch releases; see docs/RELEASING.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: "ster-vis depth --live stops after a few seconds with ... ; I expected ..."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands. If it happens on live cameras, a short recording (--record DIR) that shows it helps most.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `ster-vis doctor --cameras`
+      description: Versions, board, cameras and calibration state. Remove anything you consider private.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full error output
+      render: text
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it run?
+      multiple: true
+      options:
+        - Raspberry Pi 5
+        - Other Raspberry Pi
+        - Linux PC
+        - Windows
+        - macOS
+        - ROS 2 (ster-vis ros2)
+        - HTTP API (--stream)
