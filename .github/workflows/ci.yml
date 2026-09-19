@@ -182,8 +182,13 @@ jobs:
           python3 -m venv --system-site-packages /opt/venv
           /opt/venv/bin/pip install --quiet -c constraints-numpy1.txt -e ".[dev]"
           /opt/venv/bin/python -c "import cv2, numpy, rclpy; print('OpenCV', cv2.__version__, '| numpy', numpy.__version__, '| rclpy ok')"
+      # ROS installs pytest plugins (launch_testing) written for older pytest;
+      # with --system-site-packages the venv's newer pytest would load and
+      # reject them. These tests need no plugins, so don't autoload any.
       - name: Test the node against real rclpy
         shell: bash
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
           source /opt/ros/jazzy/setup.bash
           /opt/venv/bin/python -m pytest tests/test_ros2.py tests/test_robot.py -v -p no:cacheprovider

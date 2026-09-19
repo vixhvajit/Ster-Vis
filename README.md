@@ -743,7 +743,9 @@ python -m pytest
 No camera needed. The suite renders chessboards and a 3D scene with known
 geometry, runs the real pipeline on them and checks the answers, including the
 robot outputs' geometry and every HTTP endpoint. The ROS 2 tests run
-wherever rclpy is installed; CI runs them in the official `ros:jazzy` container. The Pi camera
+wherever rclpy is installed; CI runs them in the official `ros:jazzy` container.
+In a ROS environment, run the tests with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`:
+ROS ships pytest plugins that current pytest rejects. The Pi camera
 code is tested against a stand-in for picamera2 that reproduces its YUV
 layout, timestamps, sync handshake and request lifecycle. CI runs everything
 on Linux, Windows and ARM64, the Pi 5's architecture. That includes
