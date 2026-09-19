@@ -1,4 +1,7 @@
-# Stereo Vision
+# Ster-Vis
+
+[![CI](https://github.com/vixhvajit/Ster-Vis/actions/workflows/ci.yml/badge.svg)](https://github.com/vixhvajit/Ster-Vis/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Depth from a pair of cameras: calibrate the rig, rectify the views, match them,
 and read distance out of the disparity.
