@@ -87,3 +87,64 @@ def write_ply(
         handle.write(PLY_HEADER.format(count=len(points)))
         np.savetxt(handle, rows, fmt="%.4f %.4f %.4f %d %d %d")
     return path
+
+
+# 16-bit PNG in millimetres is the common interchange format for depth maps
+# (RealSense, Kinect and most RGB-D datasets use it): lossless, viewable, and
+# good to 1 mm up to 65.5 m. Zero marks pixels with no depth.
+DEPTH_PNG_MAX_MM = 65535
+
+
+def save_depth(path: str | Path, depth_mm: np.ndarray) -> Path:
+    """Save depth in millimetres as a 16-bit PNG, or as float32 .npy.
+
+    Non-finite and non-positive values are stored as 0 in the PNG, and as NaN
+    in the .npy. Values beyond 65.5 m are clipped in the PNG.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    depth_mm = np.asarray(depth_mm, np.float32)
+    valid = np.isfinite(depth_mm) & (depth_mm > 0)
+    if path.suffix.lower() == ".npy":
+        np.save(path, np.where(valid, depth_mm, np.nan).astype(np.float32))
+        return path
+    encoded = np.zeros(depth_mm.shape, np.uint16)
+    encoded[valid] = np.clip(np.rint(depth_mm[valid]), 1, DEPTH_PNG_MAX_MM).astype(np.uint16)
+    if not cv2.imwrite(str(path), encoded):
+        raise OSError(f"could not write {path}")
+    return path
+
+
+def load_depth(path: str | Path) -> np.ndarray:
+    """Load a depth map saved by :func:`save_depth`, as float32 mm with NaN for no depth."""
+    path = Path(path)
+    if path.suffix.lower() == ".npy":
+        return np.load(path).astype(np.float32)
+    encoded = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if encoded is None:
+        raise OSError(f"could not read {path}")
+    if encoded.dtype != np.uint16 or encoded.ndim != 2:
+        raise ValueError(f"{path} is not a single-channel 16-bit depth PNG")
+    depth = encoded.astype(np.float32)
+    depth[encoded == 0] = np.nan
+    return depth
+
+
+def colorize_depth(
+    depth_mm: np.ndarray, near: float | None = None, far: float | None = None
+) -> np.ndarray:
+    """Render depth as BGR with near = red and far = blue; no-depth pixels are black.
+
+    Pass the same ``near`` and ``far`` to compare two maps on one scale.
+    """
+    valid = np.isfinite(depth_mm) & (depth_mm > 0)
+    if near is None or far is None:
+        values = depth_mm[valid]
+        near = float(np.percentile(values, 1)) if values.size else 0.0
+        far = float(np.percentile(values, 99)) if values.size else 1.0
+    span = max(far - near, 1e-6)
+    scaled = np.zeros(depth_mm.shape, np.uint8)
+    scaled[valid] = np.clip((far - depth_mm[valid]) / span * 255.0, 0, 255).astype(np.uint8)
+    colored = cv2.applyColorMap(scaled, cv2.COLORMAP_TURBO)
+    colored[~valid] = 0
+    return colored

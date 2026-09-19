@@ -17,7 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from stereo_vision.calibration import load_calibration, rectify_pair  # noqa: E402
 from stereo_vision.capture import read_pair, stereo_cameras  # noqa: E402
 from stereo_vision.config import SGBMParams  # noqa: E402
-from stereo_vision.depth import disparity_to_depth, point_cloud, write_ply  # noqa: E402
+from stereo_vision.depth import (  # noqa: E402
+    colorize_depth,
+    disparity_to_depth,
+    point_cloud,
+    save_depth,
+    write_ply,
+)
 from stereo_vision.disparity import (  # noqa: E402
     build_matcher,
     colorize,
@@ -38,7 +44,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-disparities", type=int, default=128)
     parser.add_argument("--block-size", type=int, default=5)
     parser.add_argument("--wls", action="store_true", help="apply the WLS filter")
-    parser.add_argument("--save", type=Path, default=None, help="write the color map")
+    parser.add_argument("--save", type=Path, default=None, help="write the color disparity image")
+    parser.add_argument(
+        "--depth-out",
+        type=Path,
+        default=None,
+        help="write depth in mm: .png for 16-bit PNG, .npy for float32 "
+        "(open with scripts/view_depth.py)",
+    )
     parser.add_argument("--ply", type=Path, default=None, help="write a point cloud")
     parser.add_argument(
         "--max-depth",
@@ -113,6 +126,18 @@ def main() -> int:
     report(disparity, calibration, params)
 
     colored = colorize(disparity, params)
+    if args.depth_out:
+        depth = disparity_to_depth(
+            np.where(valid_mask(disparity, params), disparity, 0),
+            calibration.focal_length_px,
+            calibration.baseline,
+        )
+        save_depth(args.depth_out, depth)
+        print(f"wrote {args.depth_out}")
+        preview = args.depth_out.with_name(args.depth_out.stem + "_color.png")
+        cv2.imwrite(str(preview), colorize_depth(depth))
+        print(f"wrote {preview}")
+
     if args.save:
         args.save.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(args.save), colored)
@@ -129,7 +154,7 @@ def main() -> int:
         write_ply(args.ply, points, colors)
         print(f"wrote {args.ply} with {len(points)} points")
 
-    if not args.save and not args.ply:
+    if not args.save and not args.ply and not args.depth_out:
         cv2.imshow("disparity", colored)
         cv2.waitKey(0)
         cv2.destroyAllWindows()

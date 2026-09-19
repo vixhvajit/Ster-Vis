@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ster-Vis Viewer</title>
+<meta name="description" content="Offline viewer for Ster-Vis point clouds (.ply) and depth maps (16-bit PNG, .npy). No install, no network.">
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
+    --accent: #2f6fdf; --accent-ink: #ffffff; --stage: #111214; --warn: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151618; --panel: #1e1f22; --ink: #ececea; --muted: #9a9a95; --line: #2e2f33;
+      --accent: #6b9bff; --accent-ink: #0d0f14; --stage: #0b0c0d; --warn: #ff8a80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151618; --panel: #1e1f22; --ink: #ececea; --muted: #9a9a95; --line: #2e2f33;
+    --accent: #6b9bff; --accent-ink: #0d0f14; --stage: #0b0c0d; --warn: #ff8a80;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .01em; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  button, select, input[type=number] {
+    font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=number] { width: 88px; }
+  .toolbar {
+    display: none; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .toolbar.on { display: flex; }
+  .toolbar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  main { position: relative; flex: 1; min-height: 0; background: var(--stage); }
+  canvas { display: block; }
+  #gl { width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #gl.dragging { cursor: grabbing; }
+  #depthWrap { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; }
+  #depthWrap.on { display: flex; }
+  #depthCanvas { max-width: 100%; max-height: 100%; image-rendering: pixelated; cursor: crosshair; }
+  #drop {
+    position: absolute; inset: 16px; border: 2px dashed #5a5c62; border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    color: #c9cac6; text-align: center; padding: 16px;
+  }
+  #drop.hidden { display: none; }
+  #drop.over { border-color: var(--accent); background: rgba(107,155,255,.07); }
+  #drop h2 { margin: 0; font-size: 18px; font-weight: 600; color: #f0f0ee; }
+  #drop p { margin: 0; max-width: 520px; }
+  #drop code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 4px; }
+  .readout {
+    position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px);
+    background: rgba(12,13,15,.82); color: #f2f2ef; border-radius: 8px; padding: 7px 11px;
+    font: 13px/1.4 ui-monospace, "SF Mono", Consolas, monospace; pointer-events: none; display: none;
+  }
+  .readout.on { display: block; }
+  .legend {
+    position: absolute; right: 12px; bottom: 12px; width: 220px;
+    background: rgba(12,13,15,.82); color: #f2f2ef; border-radius: 8px; padding: 8px 10px 6px;
+    font-size: 12px; display: none;
+  }
+  .legend.on { display: block; }
+  .legend canvas { width: 100%; height: 10px; border-radius: 3px; }
+  .legend .ends { display: flex; justify-content: space-between; margin-top: 3px; color: #c9cac6; }
+  #status { color: var(--muted); font-size: 13px; }
+  #status.error { color: var(--warn); }
+  .help { color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 640px) {
+    header .sub { display: none; }
+    .legend { width: 150px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ster-Vis viewer</h1>
+  <span class="sub">Point clouds (.ply) and depth maps (16-bit .png, .npy). Runs offline; files never leave your machine.</span>
+  <span class="spacer"></span>
+  <button class="primary" id="openBtn" type="button">Open file…</button>
+  <button id="sampleCloud" type="button" title="Works when the repo is served, e.g. python -m http.server">Sample cloud</button>
+  <button id="sampleDepth" type="button" title="Works when the repo is served, e.g. python -m http.server">Sample depth</button>
+  <input id="fileInput" type="file" accept=".ply,.png,.npy" hidden>
+</header>
+
+<div class="toolbar" id="cloudBar">
+  <label>Colour <select id="cloudColor"><option value="rgb">image colours</option><option value="depth">depth</option></select></label>
+  <label>Point size <input id="pointSize" type="range" min="1" max="8" step="0.5" value="2"></label>
+  <button id="resetView" type="button">Reset view</button>
+  <span class="help">Drag to orbit · right-drag or Shift-drag to pan · scroll to zoom</span>
+  <span class="spacer"></span>
+  <span id="cloudStats" class="help"></span>
+</div>
+
+<div class="toolbar" id="depthBar">
+  <label>Colours <select id="depthMap"><option value="turbo">turbo</option><option value="grey">grey</option></select></label>
+  <label>Near (mm) <input id="near" type="number" step="10"></label>
+  <label>Far (mm) <input id="far" type="number" step="10"></label>
+  <button id="autoRange" type="button">Auto range</button>
+  <span class="help">Hover to read depth · click to pin a point</span>
+  <span class="spacer"></span>
+  <span id="depthStats" class="help"></span>
+</div>
+
+<main id="stage">
+  <canvas id="gl"></canvas>
+  <div id="depthWrap"><canvas id="depthCanvas"></canvas></div>
+  <div id="drop">
+    <h2>Drop a .ply point cloud or a depth map here</h2>
+    <p>Depth maps: 16-bit PNG in millimetres (what <code>run_disparity.py --depth-out</code> writes), or a float <code>.npy</code>.</p>
+    <p>Point clouds: ASCII or binary <code>.ply</code>, as written by <code>--ply</code>.</p>
+    <p id="status"></p>
+  </div>
+  <div class="readout" id="readout"></div>
+  <div class="legend" id="legend"><div id="legendTitle">depth</div><canvas id="legendBar" width="220" height="10"></canvas><div class="ends"><span id="legendNear"></span><span id="legendFar"></span></div></div>
+</main>
+
+<script>
+"use strict";
+
+/* ---------- colour ---------- */
+// Polynomial fit of Google's Turbo colour map; t in [0, 1], near = 1 (warm).
+function turbo(t) {
+  t = Math.min(1, Math.max(0, t));
+  const r = 0.13572138 + t * (4.61539260 + t * (-42.66032258 + t * (132.13108234 + t * (-152.94239396 + t * 59.28637943))));
+  const g = 0.09140261 + t * (2.19418839 + t * (4.84296658 + t * (-14.18503333 + t * (4.27729857 + t * 2.82956604))));
+  const b = 0.10667330 + t * (12.64194608 + t * (-60.58204836 + t * (110.36276771 + t * (-89.90310912 + t * 27.34824973))));
+  const c = v => Math.round(255 * Math.min(1, Math.max(0, v)));
+  return [c(r), c(g), c(b)];
+}
+const TURBO = Array.from({ length: 256 }, (_, i) => turbo(i / 255));
+const GREY = Array.from({ length: 256 }, (_, i) => [i, i, i]);
+
+function percentile(sorted, p) {
+  if (!sorted.length) return 0;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(p / 100 * (sorted.length - 1))))];
+}
+function sampledRange(values, count) {
+  // Percentiles from an evenly spaced sample, so million-point inputs stay fast.
+  const step = Math.max(1, Math.floor(count / 200000));
+  const s = [];
+  for (let i = 0; i < count; i += step) { const v = values[i]; if (Number.isFinite(v) && v > 0) s.push(v); }
+  s.sort((a, b) => a - b);
+  return [percentile(s, 1), percentile(s, 99), s.length];
+}
+
+/* ---------- file parsing ---------- */
+async function inflate(bytes) {
+  // PNG image data is a zlib stream, which is what the "deflate" format means here.
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function decodePng(buffer) {
+  // A small PNG decoder, because browsers turn 16-bit PNGs into 8-bit when
+  // drawing them, which would throw away all depth precision below 256 mm.
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!signature.every((b, i) => bytes[i] === b)) throw new Error("not a PNG file");
+  let pos = 8, width = 0, height = 0, depth = 0, colorType = 0, interlace = 0;
+  const chunks = [];
+  while (pos < bytes.length) {
+    const length = view.getUint32(pos);
+    const type = String.fromCharCode(...bytes.subarray(pos + 4, pos + 8));
+    const data = bytes.subarray(pos + 8, pos + 8 + length);
+    if (type === "IHDR") {
+      width = view.getUint32(pos + 8); height = view.getUint32(pos + 12);
+      depth = bytes[pos + 16]; colorType = bytes[pos + 17]; interlace = bytes[pos + 20];
+    } else if (type === "IDAT") chunks.push(data);
+    else if (type === "IEND") break;
+    pos += 12 + length;
+  }
+  if (colorType !== 0 || (depth !== 16 && depth !== 8)) {
+    throw new Error(`this PNG is ${depth}-bit ${["grey", "", "RGB", "palette", "grey+alpha", "", "RGBA"][colorType] || "colour"}; a depth map must be a single-channel 16-bit PNG`);
+  }
+  if (interlace) throw new Error("interlaced PNGs are not supported");
+  const joined = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let o = 0; for (const c of chunks) { joined.set(c, o); o += c.length; }
+  const raw = await inflate(joined);
+
+  const bpp = depth / 8, stride = width * bpp;
+  const out = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const src = y * (stride + 1) + 1, dst = y * stride, prev = dst - stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? out[dst + x - bpp] : 0;
+      const b = y > 0 ? out[prev + x] : 0;
+      const c = x >= bpp && y > 0 ? out[prev + x - bpp] : 0;
+      let v = raw[src + x];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      out[dst + x] = v & 255;
+    }
+  }
+  const values = new Float32Array(width * height);
+  for (let i = 0; i < values.length; i++) {
+    const v = depth === 16 ? (out[2 * i] << 8) | out[2 * i + 1] : out[i];
+    values[i] = v === 0 ? NaN : v;   // 0 means "no depth"
+  }
+  return { width, height, values, bits: depth };
+}
+
+function decodeNpy(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] !== 0x93 || String.fromCharCode(...bytes.subarray(1, 6)) !== "NUMPY") throw new Error("not a .npy file");
+  const major = bytes[6];
+  const view = new DataView(buffer);
+  const headerLen = major === 1 ? view.getUint16(8, true) : view.getUint32(8, true);
+  const start = major === 1 ? 10 : 12;
+  const header = new TextDecoder().decode(bytes.subarray(start, start + headerLen));
+  const descr = /'descr':\s*'([^']+)'/.exec(header)?.[1];
+  const fortran = /'fortran_order':\s*True/.test(header);
+  const shape = (/'shape':\s*\(([^)]*)\)/.exec(header)?.[1] || "").split(",").map(s => s.trim()).filter(Boolean).map(Number);
+  if (shape.length !== 2) throw new Error(`expected a 2D depth array, got shape (${shape.join(", ")})`);
+  if (fortran) throw new Error("Fortran-ordered arrays are not supported; save with np.ascontiguousarray");
+  const [height, width] = shape, n = width * height, off = start + headerLen;
+  const readers = {
+    "<f4": i => view.getFloat32(off + 4 * i, true), "<f8": i => view.getFloat64(off + 8 * i, true),
+    "<u2": i => view.getUint16(off + 2 * i, true), "<i4": i => view.getInt32(off + 4 * i, true),
+  };
+  const read = readers[descr];
+  if (!read) throw new Error(`unsupported dtype ${descr}; use float32, float64, uint16 or int32`);
+  const values = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const v = read(i); values[i] = Number.isFinite(v) && v > 0 ? v : NaN; }
+  return { width, height, values, bits: descr };
+}
+
+function decodePly(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const marker = "end_header";
+  let headerEnd = -1;
+  for (let i = 0; i < Math.min(bytes.length, 65536); i++) {
+    if (bytes[i] === 101 && String.fromCharCode(...bytes.subarray(i, i + marker.length)) === marker) {
+      headerEnd = i + marker.length;
+      while (bytes[headerEnd] === 13 || bytes[headerEnd] === 10) { headerEnd++; if (bytes[headerEnd - 1] === 10) break; }
+      break;
+    }
+  }
+  if (headerEnd < 0) throw new Error("no PLY header found");
+  const header = new TextDecoder().decode(bytes.subarray(0, headerEnd)).split(/\r?\n/);
+  if (header[0].trim() !== "ply") throw new Error("not a PLY file");
+  let format = "", count = 0, inVertex = false;
+  const props = [];
+  for (const line of header) {
+    const t = line.trim().split(/\s+/);
+    if (t[0] === "format") format = t[1];
+    else if (t[0] === "element") { inVertex = t[1] === "vertex"; if (inVertex) count = parseInt(t[2], 10); }
+    else if (t[0] === "property" && inVertex) {
+      if (t[1] === "list") throw new Error("list properties on vertices are not supported");
+      props.push({ type: t[1], name: t[2] });
+    }
+  }
+  const find = (...names) => props.findIndex(p => names.includes(p.name));
+  const ix = find("x"), iy = find("y"), iz = find("z");
+  const ir = find("red", "r", "diffuse_red"), ig = find("green", "g", "diffuse_green"), ib = find("blue", "b", "diffuse_blue");
+  if (ix < 0 || iy < 0 || iz < 0) throw new Error("the PLY has no x, y, z vertex properties");
+  const positions = new Float32Array(count * 3);
+  const colors = new Uint8Array(count * 3).fill(200);
+  const hasColor = ir >= 0 && ig >= 0 && ib >= 0;
+  const colorScale = hasColor && /float|double/.test(props[ir].type) ? 255 : 1;
+
+  if (format === "ascii") {
+    const text = new TextDecoder().decode(bytes.subarray(headerEnd));
+    let p = 0, n = 0;
+    while (n < count && p < text.length) {
+      let e = text.indexOf("\n", p); if (e < 0) e = text.length;
+      const f = text.slice(p, e).trim().split(/\s+/);
+      p = e + 1;
+      if (f.length < props.length) continue;
+      positions[3 * n] = +f[ix]; positions[3 * n + 1] = +f[iy]; positions[3 * n + 2] = +f[iz];
+      if (hasColor) { colors[3 * n] = +f[ir] * colorScale; colors[3 * n + 1] = +f[ig] * colorScale; colors[3 * n + 2] = +f[ib] * colorScale; }
+      n++;
+    }
+    return { positions: positions.subarray(0, 3 * n), colors: colors.subarray(0, 3 * n), count: n, hasColor };
+  }
+  if (format !== "binary_little_endian" && format !== "binary_big_endian") throw new Error(`unsupported PLY format ${format}`);
+  const little = format === "binary_little_endian";
+  const size = { char: 1, int8: 1, uchar: 1, uint8: 1, short: 2, int16: 2, ushort: 2, uint16: 2, int: 4, int32: 4, uint: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
+  const getter = {
+    char: "getInt8", int8: "getInt8", uchar: "getUint8", uint8: "getUint8", short: "getInt16", int16: "getInt16",
+    ushort: "getUint16", uint16: "getUint16", int: "getInt32", int32: "getInt32", uint: "getUint32", uint32: "getUint32",
+    float: "getFloat32", float32: "getFloat32", double: "getFloat64", float64: "getFloat64",
+  };
+  const offsets = []; let stride = 0;
+  for (const p of props) { if (!size[p.type]) throw new Error(`unknown PLY type ${p.type}`); offsets.push(stride); stride += size[p.type]; }
+  const view = new DataView(buffer, headerEnd);
+  const read = (i, k) => view[getter[props[k].type]](i * stride + offsets[k], little);
+  const n = Math.min(count, Math.floor(view.byteLength / stride));
+  for (let i = 0; i < n; i++) {
+    positions[3 * i] = read(i, ix); positions[3 * i + 1] = read(i, iy); positions[3 * i + 2] = read(i, iz);
+    if (hasColor) { colors[3 * i] = read(i, ir) * colorScale; colors[3 * i + 1] = read(i, ig) * colorScale; colors[3 * i + 2] = read(i, ib) * colorScale; }
+  }
+  return { positions: positions.subarray(0, 3 * n), colors: colors.subarray(0, 3 * n), count: n, hasColor };
+}
+
+/* ---------- minimal matrix maths ---------- */
+const M = {
+  perspective(fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+  },
+  lookAt(eye, target, up) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const z = norm(sub(eye, target)), x = norm(cross(up, z)), y = cross(z, x);
+    return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1];
+  },
+  multiply(a, b) {
+    const o = new Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    }
+    return o;
+  },
+};
+
+/* ---------- point cloud view ---------- */
+const glCanvas = document.getElementById("gl");
+const gl = glCanvas.getContext("webgl", { antialias: true });
+const cloud = { count: 0, positions: null, colors: null, depthColors: null, target: [0, 0, 0], radius: 1 };
+const view = { yaw: 0, pitch: 0, distance: 3, pan: [0, 0, 0] };
+
+function compile(type, source) {
+  const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+let program, posBuffer, colBuffer, loc;
+if (gl) {
+  program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, `
+    attribute vec3 position; attribute vec3 color;
+    uniform mat4 mvp; uniform float size; varying vec3 vColor;
+    void main() { gl_Position = mvp * vec4(position, 1.0); gl_PointSize = size; vColor = color; }`));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
+    precision mediump float; varying vec3 vColor;
+    void main() { gl_FragColor = vec4(vColor, 1.0); }`));
+  gl.linkProgram(program);
+  posBuffer = gl.createBuffer(); colBuffer = gl.createBuffer();
+  loc = {
+    position: gl.getAttribLocation(program, "position"), color: gl.getAttribLocation(program, "color"),
+    mvp: gl.getUniformLocation(program, "mvp"), size: gl.getUniformLocation(program, "size"),
+  };
+}
+
+function loadCloud(data, name) {
+  if (!gl) throw new Error("WebGL is not available in this browser");
+  if (!data.count) throw new Error("the point cloud is empty");
+  cloud.count = data.count; cloud.positions = data.positions; cloud.colors = data.colors;
+  // Centre on the median point and size the view to where most points are,
+  // so a few stray far matches do not shrink everything to a dot.
+  const axis = k => { const v = []; const step = Math.max(1, Math.floor(data.count / 100000));
+    for (let i = 0; i < data.count; i += step) v.push(data.positions[3 * i + k]); return v.sort((a, b) => a - b); };
+  const xs = axis(0), ys = axis(1), zs = axis(2);
+  cloud.target = [percentile(xs, 50), percentile(ys, 50), percentile(zs, 50)];
+  cloud.radius = Math.max(percentile(xs, 97) - percentile(xs, 3), percentile(ys, 97) - percentile(ys, 3), percentile(zs, 97) - percentile(zs, 3)) / 2 || 1;
+  const zValues = new Float32Array(data.count);
+  for (let i = 0; i < data.count; i++) zValues[i] = data.positions[3 * i + 2];
+  const [near, far] = sampledRange(zValues, data.count);
+  cloud.depthColors = new Uint8Array(data.count * 3);
+  for (let i = 0; i < data.count; i++) {
+    const c = TURBO[Math.round(Math.min(1, Math.max(0, (far - zValues[i]) / (far - near || 1))) * 255)];
+    cloud.depthColors.set(c, 3 * i);
+  }
+  cloud.near = near; cloud.far = far;
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer); gl.bufferData(gl.ARRAY_BUFFER, data.positions, gl.STATIC_DRAW);
+  const colorSelect = document.getElementById("cloudColor");
+  colorSelect.value = colorSelect.dataset.force || (data.hasColor ? "rgb" : "depth");
+  uploadColors();
+  resetView();
+  showMode("cloud");
+  const span = v => `${(v / 1000).toFixed(2)} m`;
+  document.getElementById("cloudStats").textContent = `${name} · ${data.count.toLocaleString()} points · depth ${span(near)}–${span(far)}`;
+}
+function uploadColors() {
+  const mode = document.getElementById("cloudColor").value;
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, mode === "depth" ? cloud.depthColors : cloud.colors, gl.STATIC_DRAW);
+  setLegend(mode === "depth", cloud.near, cloud.far, TURBO, "point depth");
+  draw();
+}
+function resetView() { view.yaw = 0; view.pitch = 0; view.pan = [0, 0, 0]; view.distance = cloud.radius * 2.6; draw(); }
+
+function eyeFrame() {
+  // The cloud uses camera axes (x right, y down, z forward); start looking
+  // down +z from behind the camera, with -y as up, so it appears upright.
+  const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
+  const forward = [sy * cp, -sp, cy * cp];
+  const target = cloud.target.map((v, i) => v + view.pan[i]);
+  const eye = target.map((v, i) => v - forward[i] * view.distance);
+  return { eye, target, forward };
+}
+function draw() {
+  if (!gl || !cloud.count) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.floor(glCanvas.clientWidth * dpr), h = Math.floor(glCanvas.clientHeight * dpr);
+  if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.clearColor(0.043, 0.047, 0.051, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  const { eye, target } = eyeFrame();
+  const proj = M.perspective(50 * Math.PI / 180, w / h, view.distance / 1000, view.distance * 20 + cloud.radius * 10);
+  const mvp = M.multiply(proj, M.lookAt(eye, target, [0, -1, 0]));
+  gl.useProgram(program);
+  gl.uniformMatrix4fv(loc.mvp, false, new Float32Array(mvp));
+  gl.uniform1f(loc.size, parseFloat(document.getElementById("pointSize").value) * dpr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+  gl.enableVertexAttribArray(loc.position); gl.vertexAttribPointer(loc.position, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+  gl.enableVertexAttribArray(loc.color); gl.vertexAttribPointer(loc.color, 3, gl.UNSIGNED_BYTE, true, 0, 0);
+  gl.drawArrays(gl.POINTS, 0, cloud.count);
+}
+
+let drag = null;
+glCanvas.addEventListener("contextmenu", e => e.preventDefault());
+glCanvas.addEventListener("pointerdown", e => {
+  drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey };
+  glCanvas.setPointerCapture(e.pointerId); glCanvas.classList.add("dragging");
+});
+glCanvas.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.pan) {
+    const { forward } = eyeFrame();
+    const right = [forward[2], 0, -forward[0]];
+    const len = Math.hypot(...right) || 1;
+    const k = view.distance / glCanvas.clientHeight;
+    for (let i = 0; i < 3; i++) view.pan[i] -= right[i] / len * dx * k;
+    view.pan[1] += dy * k * Math.cos(view.pitch);
+  } else {
+    view.yaw += dx * 0.006;
+    view.pitch = Math.max(-1.5, Math.min(1.5, view.pitch + dy * 0.006));
+  }
+  draw();
+});
+const endDrag = () => { drag = null; glCanvas.classList.remove("dragging"); };
+glCanvas.addEventListener("pointerup", endDrag);
+glCanvas.addEventListener("pointercancel", endDrag);
+glCanvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  view.distance *= Math.exp(e.deltaY * 0.0012);
+  view.distance = Math.max(cloud.radius * 0.02, Math.min(cloud.radius * 40, view.distance));
+  draw();
+}, { passive: false });
+
+/* ---------- depth map view ---------- */
+const depthCanvas = document.getElementById("depthCanvas");
+const depthCtx = depthCanvas.getContext("2d");
+const depth = { width: 0, height: 0, values: null, pinned: [], image: null };
+
+function loadDepth(data, name) {
+  Object.assign(depth, data, { pinned: [] });
+  depthCanvas.width = data.width; depthCanvas.height = data.height;
+  autoRange();
+  showMode("depth");
+  const valid = data.values.reduce((n, v) => n + (Number.isFinite(v) ? 1 : 0), 0);
+  document.getElementById("depthStats").textContent =
+    `${name} · ${data.width}×${data.height} · ${(100 * valid / data.values.length).toFixed(1)}% of pixels have depth`;
+}
+function autoRange() {
+  const [near, far] = sampledRange(depth.values, depth.values.length);
+  document.getElementById("near").value = Math.round(near);
+  document.getElementById("far").value = Math.round(far);
+  paintDepth();
+}
+function paintDepth() {
+  const near = parseFloat(document.getElementById("near").value);
+  const far = parseFloat(document.getElementById("far").value);
+  const lut = document.getElementById("depthMap").value === "grey" ? GREY : TURBO;
+  const image = depthCtx.createImageData(depth.width, depth.height);
+  const span = far - near || 1;
+  for (let i = 0; i < depth.values.length; i++) {
+    const v = depth.values[i], o = 4 * i;
+    if (!Number.isFinite(v)) { image.data[o + 3] = 255; continue; }
+    const c = lut[Math.round(Math.min(1, Math.max(0, (far - v) / span)) * 255)];
+    image.data[o] = c[0]; image.data[o + 1] = c[1]; image.data[o + 2] = c[2]; image.data[o + 3] = 255;
+  }
+  depth.image = image;
+  redrawDepth();
+  setLegend(true, near, far, lut, "depth");
+}
+function redrawDepth(cursor) {
+  if (!depth.image) return;
+  depthCtx.putImageData(depth.image, 0, 0);
+  const mark = (x, y, r, style) => {
+    depthCtx.strokeStyle = style; depthCtx.lineWidth = Math.max(1, depth.width / 700);
+    depthCtx.beginPath(); depthCtx.arc(x + 0.5, y + 0.5, r, 0, 2 * Math.PI); depthCtx.stroke();
+  };
+  const r = Math.max(4, depth.width / 160);
+  for (const p of depth.pinned) mark(p.x, p.y, r, "#ffffff");
+  if (cursor) mark(cursor.x, cursor.y, r * 0.6, "rgba(255,255,255,.8)");
+}
+function describeDepth(x, y) {
+  const v = depth.values[y * depth.width + x];
+  return Number.isFinite(v) ? `(${x}, ${y})  ${v.toFixed(0)} mm  = ${(v / 1000).toFixed(3)} m` : `(${x}, ${y})  no depth`;
+}
+function pixelAt(e) {
+  const box = depthCanvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - box.left) / box.width * depth.width);
+  const y = Math.floor((e.clientY - box.top) / box.height * depth.height);
+  return x >= 0 && y >= 0 && x < depth.width && y < depth.height ? { x, y } : null;
+}
+depthCanvas.addEventListener("mousemove", e => {
+  const p = pixelAt(e); if (!p) return;
+  redrawDepth(p);
+  const pins = depth.pinned.map((q, i) => `pin ${i + 1}: ${describeDepth(q.x, q.y)}`).join("\n");
+  setReadout(`${describeDepth(p.x, p.y)}${pins ? "\n" + pins : ""}`);
+});
+depthCanvas.addEventListener("mouseleave", () => { redrawDepth(); setReadout(depth.pinned.map((q, i) => `pin ${i + 1}: ${describeDepth(q.x, q.y)}`).join("\n")); });
+depthCanvas.addEventListener("click", e => {
+  const p = pixelAt(e); if (!p) return;
+  depth.pinned = [...depth.pinned, p].slice(-4);
+  redrawDepth(p);
+});
+
+/* ---------- shared UI ---------- */
+const readout = document.getElementById("readout");
+function setReadout(text) { readout.textContent = text; readout.style.whiteSpace = "pre"; readout.classList.toggle("on", !!text); }
+function setLegend(on, near, far, lut, title) {
+  const el = document.getElementById("legend"); el.classList.toggle("on", !!on);
+  if (!on) return;
+  document.getElementById("legendTitle").textContent = title;
+  const bar = document.getElementById("legendBar"), ctx = bar.getContext("2d");
+  for (let x = 0; x < bar.width; x++) {
+    const c = lut[Math.round((1 - x / (bar.width - 1)) * 255)];
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.fillRect(x, 0, 1, bar.height);
+  }
+  document.getElementById("legendNear").textContent = `${(near / 1000).toFixed(2)} m near`;
+  document.getElementById("legendFar").textContent = `${(far / 1000).toFixed(2)} m far`;
+}
+function showMode(mode) {
+  document.getElementById("drop").classList.add("hidden");
+  document.getElementById("cloudBar").classList.toggle("on", mode === "cloud");
+  document.getElementById("depthBar").classList.toggle("on", mode === "depth");
+  document.getElementById("depthWrap").classList.toggle("on", mode === "depth");
+  glCanvas.style.visibility = mode === "cloud" ? "visible" : "hidden";
+  setReadout("");
+  if (mode === "cloud") draw();
+}
+function setStatus(text, isError) {
+  const s = document.getElementById("status");
+  s.textContent = text; s.classList.toggle("error", !!isError);
+  if (isError) document.getElementById("drop").classList.remove("hidden");
+}
+
+async function openBuffer(buffer, name) {
+  const ext = name.toLowerCase().split(".").pop();
+  setStatus(`Reading ${name}…`);
+  await new Promise(r => setTimeout(r, 0));
+  try {
+    if (ext === "ply") loadCloud(decodePly(buffer), name);
+    else if (ext === "png") loadDepth(await decodePng(buffer), name);
+    else if (ext === "npy") loadDepth(decodeNpy(buffer), name);
+    else throw new Error("open a .ply, .png or .npy file");
+    setStatus("");
+  } catch (err) {
+    setStatus(`Could not open ${name}: ${err.message}`, true);
+  }
+}
+async function openFile(file) { if (file) await openBuffer(await file.arrayBuffer(), file.name); }
+
+document.getElementById("openBtn").addEventListener("click", () => document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", e => openFile(e.target.files[0]));
+async function openSample(path) {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(response.statusText);
+    await openBuffer(await response.arrayBuffer(), path.split("/").pop());
+  } catch {
+    setStatus("Samples load only when the repo is served, because browsers block pages opened from disk from reading other files. " +
+      "Run  python -m http.server  in the repo folder and open http://localhost:8000/viewer/ , or drop the file from docs/samples/ onto this page.", true);
+  }
+}
+document.getElementById("sampleCloud").addEventListener("click", () => openSample("../docs/samples/scene_cloud.ply"));
+document.getElementById("sampleDepth").addEventListener("click", () => openSample("../docs/samples/scene_depth_mm.png"));
+document.getElementById("cloudColor").addEventListener("change", uploadColors);
+document.getElementById("pointSize").addEventListener("input", draw);
+document.getElementById("resetView").addEventListener("click", resetView);
+document.getElementById("depthMap").addEventListener("change", paintDepth);
+document.getElementById("near").addEventListener("change", paintDepth);
+document.getElementById("far").addEventListener("change", paintDepth);
+document.getElementById("autoRange").addEventListener("click", autoRange);
+window.addEventListener("resize", draw);
+
+const stage = document.getElementById("stage"), drop = document.getElementById("drop");
+["dragenter", "dragover"].forEach(t => stage.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("hidden"); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => stage.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+stage.addEventListener("drop", e => openFile(e.dataTransfer.files[0]));
+
+// ?open=path loads a file on start when the page is served, for example
+// http://localhost:8000/viewer/?open=../docs/samples/scene_cloud.ply
+// &color=depth starts a point cloud coloured by distance.
+const params = new URLSearchParams(location.search);
+if (params.get("color") === "depth") document.getElementById("cloudColor").dataset.force = "depth";
+if (params.get("open")) openSample(params.get("open"));
+
+if (!gl) setStatus("WebGL is unavailable, so point clouds cannot be shown here. Depth maps still work.", true);
+if (typeof DecompressionStream === "undefined") setStatus("This browser is too old to decode PNG depth maps; use a current Chrome, Edge, Firefox or Safari.", true);
+</script>
+</body>
+</html>
