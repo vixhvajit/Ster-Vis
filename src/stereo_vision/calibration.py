@@ -123,8 +123,25 @@ def find_corners(
     if not found:
         return None
     if refine:
-        corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), CORNER_CRITERIA)
+        half = refinement_half_window(corners, board)
+        corners = cv2.cornerSubPix(gray, corners, (half, half), (-1, -1), CORNER_CRITERIA)
     return corners
+
+
+def refinement_half_window(
+    corners: np.ndarray, board: BoardSpec, fraction: float = 0.4, largest: int = 11
+) -> int:
+    """Half-size of the cornerSubPix search window, scaled to the board in view.
+
+    A fixed window breaks on small or steeply tilted boards: once the window
+    is wider than a square it reaches the neighbouring corner, and refinement
+    can converge there instead, moving the point by a whole square. Keeping
+    the window under half the shortest corner spacing rules that out.
+    """
+    grid = corners.reshape(board.rows, board.columns, 2)
+    across = np.linalg.norm(np.diff(grid, axis=1), axis=2).min()
+    down = np.linalg.norm(np.diff(grid, axis=0), axis=2).min()
+    return int(np.clip(min(across, down) * fraction, 2, largest))
 
 
 def collect_correspondences(
