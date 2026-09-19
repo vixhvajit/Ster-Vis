@@ -11,6 +11,22 @@ release notes, so write entries for the people who install it.
 
 ## [Unreleased]
 
+### Added
+
+- **A Gazebo simulation of obstacle avoidance on Ster-Vis depth**
+  (`sim/gazebo/`, not part of the package). A rover with two cameras and a
+  Pi 5 drives itself among obstacles, using the `pi5` preset, the confidence
+  check and the laser scan. Every scan is scored against a perfect depth
+  camera. It ran 180 s with no collisions. Results, a GIF and a video are in
+  the README under Testing and validation.
+
+### Known issues
+
+- `laser_scan` reports a beam as clear (inf), not unknown, when its columns
+  have depth only outside the height band, for example floor below an area the
+  confidence check removed. In the simulation this showed up at the image's
+  right edge as 2% of near obstacles missed.
+
 ## [2.0.1] - 2026-09-19
 
 ### Fixed

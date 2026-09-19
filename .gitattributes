@@ -7,3 +7,5 @@
 *.pdf binary
 *.png binary
 *.ply binary
+*.gif binary
+*.mp4 binary

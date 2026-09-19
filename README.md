@@ -58,6 +58,7 @@ tools/               release tooling (release notes from the changelog)
 examples/            robot client for the HTTP API
 docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
+sim/gazebo/          obstacle-avoidance simulation in Gazebo (not part of the package)
 ```
 
 ## Hardware
@@ -756,7 +757,14 @@ The cameras must be rigidly mounted. Any flex between them invalidates the
 calibration, and disparity silently turns into nonsense rather than failing
 loudly.
 
-## Tests
+## Testing and validation
+
+Three layers, none of them needing hardware: the unit tests, the synthetic
+ground-truth scenes in [Try it without cameras](#try-it-without-cameras), and a
+robot driving itself in Gazebo on Ster-Vis depth. Nothing has run on a real
+Pi or real cameras yet.
+
+### Unit tests
 
 ```powershell
 python -m pytest
@@ -773,6 +781,52 @@ layout, timestamps, sync handshake and request lifecycle. CI runs everything
 on Linux, Windows and ARM64, the Pi 5's architecture. That includes
 the full depth map from an estimated calibration, and a regression test for a
 corner-refinement bug that put corners up to 11 px off on small, tilted boards.
+
+### Gazebo simulation: obstacle avoidance
+
+![Gazebo run: chase camera and map on top; below, the rectified left image, Ster-Vis depth, the stereo scan against the truth, and status](docs/samples/gazebo_avoidance.gif)
+
+A 4-wheel rover with two cameras on a 12 cm bar and a Raspberry Pi 5 drives
+itself around a 12 m arena with 16 obstacles in Gazebo Harmonic. It sees only
+through the stereo pair. Each pair goes through the Ster-Vis `pi5` preset
+(rectify to 320x240, SGBM, depth), then the left-right confidence check, then
+the Ster-Vis laser scan, and a reactive controller turns the scan into
+`cmd_vel`. A perfect depth camera at the left camera scores every scan against
+the truth; the controller never reads it. The GIF is 26 s of the run;
+[the full 3 minutes is here](docs/samples/gazebo_avoidance.mp4).
+
+| Run (180 s sim time each) | Pairs/s | Driven | Collisions | Scan error, median / p90 | Near beams missed | blind | phantom |
+|---|---|---|---|---|---|---|---|
+| every frame | 10 | 67.0 m | 0 | 1.5 / 8.1 cm | 0.16% | 30.1% | 3.8% |
+| capped, as for a slower Pi | 5 | 67.8 m | 0 | 1.5 / 7.9 cm | 0.15% | 32.7% | 2.5% |
+
+"Near" means a true range under 2 m. **Missed** is a near obstacle the stereo
+scan reported as clear, the error that causes crashes. **Blind** is one it
+reported as unknown: SGBM cannot match the left ~20% of the image. **Phantom** is
+a reported obstacle with nothing real there. Stereo took 22-51 ms per pair on
+the desktop running the sim, which renders four cameras at the same time. The
+Pi 5 rate is still to be measured.
+
+What the simulation showed:
+
+- **Plain surfaces make phantom obstacles.** SGBM finds false near matches in
+  a plain sky or a flat grey floor, and they land in the laser scan. Real floors
+  have texture, so the simulated floor does too. The sky has to be handled by
+  the scan band.
+- **Keep the scan's height band tight.** With its top 0.4 m above the cameras,
+  sky matches made 10% of near beams phantoms. At 0.1 m above the cameras,
+  which still covers everything from 6 cm to 47 cm off the floor, they made
+  about 1% on the same 186 recorded frames (`tune.py`). The full runs above use
+  the tight band.
+- **Known gap in `laser_scan`.** With the confidence check on, depth is lost
+  in a ~40 px strip at the right edge, because the right-to-left match has no
+  data there. The floor in those columns still has depth, so `laser_scan`
+  counts the beams as seen and reports them clear (inf), not unknown (NaN).
+  That was 2% missed obstacles, until the simulation kept the unchecked depth
+  in that strip. `laser_scan` should report a beam as seen only when the height
+  band itself has data.
+
+How to run it, and what each script does: [sim/gazebo/README.md](sim/gazebo/README.md).
 
 ## License
 
