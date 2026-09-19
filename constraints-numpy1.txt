@@ -10,5 +10,5 @@
 # pins 4.11.0.86, the last OpenCV that works with numpy 1.x (it has ARM64 wheels).
 # As constraints, these fix versions without adding anything to install; with
 # the system numpy already present, pip leaves it alone.
-opencv-contrib-python==4.11.0.86
+opencv-contrib-python==4.14.0.94
 numpy>=1.23.5,<2
