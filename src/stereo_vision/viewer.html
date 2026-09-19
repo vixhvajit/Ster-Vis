@@ -94,8 +94,8 @@
   <span class="sub">Point clouds (.ply) and depth maps (16-bit .png, .npy). Runs offline; files never leave your machine.</span>
   <span class="spacer"></span>
   <button class="primary" id="openBtn" type="button">Open file…</button>
-  <button id="sampleCloud" type="button" title="Works when the repo is served, e.g. python -m http.server">Sample cloud</button>
-  <button id="sampleDepth" type="button" title="Works when the repo is served, e.g. python -m http.server">Sample depth</button>
+  <button id="sampleCloud" type="button" title="Needs ster-vis viewer, run from the repository folder">Sample cloud</button>
+  <button id="sampleDepth" type="button" title="Needs ster-vis viewer, run from the repository folder">Sample depth</button>
   <input id="fileInput" type="file" accept=".ply,.png,.npy" hidden>
 </header>
 
@@ -593,12 +593,12 @@ async function openSample(path) {
     if (!response.ok) throw new Error(response.statusText);
     await openBuffer(await response.arrayBuffer(), path.split("/").pop());
   } catch {
-    setStatus("Samples load only when the repo is served, because browsers block pages opened from disk from reading other files. " +
-      "Run  python -m http.server  in the repo folder and open http://localhost:8000/viewer/ , or drop the file from docs/samples/ onto this page.", true);
+    setStatus("Could not load " + path + ". Sample files come with the source repository: run  ster-vis viewer  from its folder, " +
+      "or drop a file onto this page. Browsers block pages opened straight from disk from reading other files.", true);
   }
 }
-document.getElementById("sampleCloud").addEventListener("click", () => openSample("../docs/samples/scene_cloud.ply"));
-document.getElementById("sampleDepth").addEventListener("click", () => openSample("../docs/samples/scene_depth_mm.png"));
+document.getElementById("sampleCloud").addEventListener("click", () => openSample("samples/scene_cloud.ply"));
+document.getElementById("sampleDepth").addEventListener("click", () => openSample("samples/scene_depth_mm.png"));
 document.getElementById("cloudColor").addEventListener("change", uploadColors);
 document.getElementById("pointSize").addEventListener("input", draw);
 document.getElementById("resetView").addEventListener("click", resetView);
@@ -613,8 +613,8 @@ const stage = document.getElementById("stage"), drop = document.getElementById("
 ["dragleave", "drop"].forEach(t => stage.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
 stage.addEventListener("drop", e => openFile(e.dataTransfer.files[0]));
 
-// ?open=path loads a file on start when the page is served, for example
-// http://localhost:8000/viewer/?open=../docs/samples/scene_cloud.ply
+// ?open=path loads a file on start when the page is served; ster-vis viewer
+// uses this to open the file named on its command line.
 // &color=depth starts a point cloud coloured by distance.
 const params = new URLSearchParams(location.search);
 if (params.get("color") === "depth") document.getElementById("cloudColor").dataset.force = "depth";

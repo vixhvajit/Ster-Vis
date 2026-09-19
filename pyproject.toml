@@ -1,3 +1,56 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ster-vis"
+dynamic = ["version"]
+description = "Depth from two cameras: calibration, rectification, stereo matching and point clouds, with Raspberry Pi 5 support."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Vishvajit S" }]
+requires-python = ">=3.11"
+# numpy 1.23.5 is the floor so Raspberry Pi OS Bookworm's system numpy (1.24)
+# still qualifies; see constraints-pi-bookworm.txt.
+dependencies = [
+    "opencv-contrib-python>=4.9,<5",
+    "numpy>=1.23.5,<3",
+]
+keywords = ["stereo vision", "depth", "opencv", "raspberry pi", "point cloud", "camera calibration"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Intended Audience :: Science/Research",
+]
+
+[project.optional-dependencies]
+# Open3D for 3D point cloud windows in `ster-vis view`; about 50 packages.
+viewer = ["open3d>=0.19,<1"]
+dev = ["pytest>=8.0", "build>=1.2"]
+
+[project.scripts]
+ster-vis = "stereo_vision.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/vixhvajit/Ster-Vis"
+Source = "https://github.com/vixhvajit/Ster-Vis"
+Issues = "https://github.com/vixhvajit/Ster-Vis/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "stereo_vision.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stereo_vision = ["viewer.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-q"

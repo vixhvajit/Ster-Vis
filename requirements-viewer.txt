@@ -1,5 +1,0 @@
-# Optional: 3D point cloud viewing in scripts/view_depth.py.
-# Not needed for depth maps, or for the browser viewer in viewer/index.html.
-# Open3D pulls in about 50 packages; install only if you want it.
--r requirements.txt
-open3d>=0.19,<1

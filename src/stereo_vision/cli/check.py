@@ -11,18 +11,17 @@ Exits non-zero if any metric is out of tolerance, so it can gate CI.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
-from stereo_vision.calibration import load_calibration  # noqa: E402
-from stereo_vision.capture import save_pair  # noqa: E402
-from stereo_vision.config import BoardSpec  # noqa: E402
-from stereo_vision.synthetic import TOLERANCES, default_rig, evaluate, render_pairs  # noqa: E402
+from stereo_vision.calibration import load_calibration
+from stereo_vision.cli import calibrate
+from stereo_vision.capture import save_pair
+from stereo_vision.config import BoardSpec
+from stereo_vision.synthetic import TOLERANCES, default_rig, evaluate, render_pairs
 
 LABELS = {
     "rms_px": "reprojection RMS",
@@ -46,19 +45,19 @@ def unit(key: str) -> str:
     return "px"
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pairs", type=int, default=25)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis check", description=__doc__)
+    parser.add_argument("--pairs", type=int, default=25, help="25 or more; fewer can fail the checks")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--workdir", type=Path, default=ROOT / "output" / "synthetic")
+    parser.add_argument("--workdir", type=Path, default=Path("output/synthetic"))
     parser.add_argument(
         "--keep", action="store_true", help="keep the rendered pairs for inspection"
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     board = BoardSpec()
     rig = default_rig()
 
@@ -72,22 +71,17 @@ def main() -> int:
     for index, (left, right) in enumerate(zip(lefts, rights)):
         save_pair(pairs_dir, index, left, right)
 
-    print("running scripts/calibrate.py on them ...\n")
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts" / "calibrate.py"),
+    print("running ster-vis calibrate on them ...\n")
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        code = calibrate.main([
             "--pairs", str(pairs_dir),
             "--output", str(calib_path),
             "--square-size", str(board.square_size),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    print("\n".join("  | " + line for line in result.stdout.strip().splitlines()))
-    if result.returncode != 0:
-        print(result.stderr)
-        print("\ncalibrate.py failed")
+        ])
+    print("\n".join("  | " + line for line in captured.getvalue().strip().splitlines()))
+    if code != 0:
+        print("\ncalibration failed")
         return 1
 
     metrics = evaluate(load_calibration(calib_path), rig, board)

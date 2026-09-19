@@ -10,23 +10,21 @@ Depth maps (.png 16-bit mm, or .npy float mm) open in an OpenCV window:
   q or ESC         quit
 
 Point clouds (.ply) open in Open3D if it is installed
-(pip install -r requirements-viewer.txt). Without it, use the browser viewer
-in viewer/index.html, MeshLab or CloudCompare; see the README.
+(pip install "ster-vis[viewer]"). Without it, use the browser viewer
+(ster-vis viewer FILE), MeshLab or CloudCompare; see the README.
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from stereo_vision.calibration import load_calibration  # noqa: E402
-from stereo_vision.depth import load_depth  # noqa: E402
+from stereo_vision.calibration import load_calibration
+from stereo_vision.depth import load_depth
 
 COLORMAPS = [
     ("turbo", cv2.COLORMAP_TURBO),
@@ -37,8 +35,8 @@ COLORMAPS = [
 WINDOW = "depth (q quits, c colours, s saves)"
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis view", 
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("path", type=Path, help="depth .png / .npy, or a .ply point cloud")
@@ -50,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--near", type=float, default=None, help="colour scale near end, mm")
     parser.add_argument("--far", type=float, default=None, help="colour scale far end, mm")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def depth_range(depth: np.ndarray) -> tuple[float, float]:
@@ -104,8 +102,8 @@ def view_point_cloud(path: Path) -> int:
     except ImportError:
         print(
             "Open3D is not installed, so .ply files cannot open here.\n"
-            "  install it:        pip install -r requirements-viewer.txt\n"
-            "  or, no install:    open viewer/index.html in a browser and drop the file in\n"
+            '  install it:        pip install "ster-vis[viewer]"\n'
+            f"  or, no install:    ster-vis viewer {path}\n"
             "  or use MeshLab / CloudCompare (install commands in the README)"
         )
         return 1
@@ -118,8 +116,8 @@ def view_point_cloud(path: Path) -> int:
     return 0
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if args.path.suffix.lower() == ".ply":
         return view_point_cloud(args.path)
 

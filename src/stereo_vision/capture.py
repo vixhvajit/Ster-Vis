@@ -1,60 +1,11 @@
-"""Grab synchronized frame pairs from two cameras."""
+"""Save and load calibration image pairs. Live capture lives in sources.py."""
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 import cv2
 import numpy as np
-
-
-@contextmanager
-def stereo_cameras(
-    left_index: int = 0,
-    right_index: int = 1,
-    width: int | None = None,
-    height: int | None = None,
-    backend: int = cv2.CAP_ANY,
-) -> Iterator[tuple[cv2.VideoCapture, cv2.VideoCapture]]:
-    """Open both cameras, and release them even if the caller raises.
-
-    Two independent USB cameras are only loosely synchronized: frames are read
-    back to back, which is fine for a static scene but will smear on fast
-    motion. A hardware-triggered rig is the fix if that matters.
-    """
-    left = cv2.VideoCapture(left_index, backend)
-    right = cv2.VideoCapture(right_index, backend)
-    try:
-        for capture, index in ((left, left_index), (right, right_index)):
-            if not capture.isOpened():
-                raise RuntimeError(f"could not open camera index {index}")
-            if width is not None:
-                capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            if height is not None:
-                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        yield left, right
-    finally:
-        left.release()
-        right.release()
-
-
-def read_pair(
-    left: cv2.VideoCapture, right: cv2.VideoCapture
-) -> tuple[np.ndarray, np.ndarray]:
-    """Read one frame from each camera, raising if either read fails.
-
-    ``grab`` is issued on both before either ``retrieve`` so the two exposures
-    start as close together as the driver allows.
-    """
-    left.grab()
-    right.grab()
-    left_ok, left_frame = left.retrieve()
-    right_ok, right_frame = right.retrieve()
-    if not left_ok or not right_ok:
-        raise RuntimeError("failed to read a frame from one of the cameras")
-    return left_frame, right_frame
 
 
 def save_pair(

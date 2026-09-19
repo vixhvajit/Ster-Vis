@@ -18,41 +18,38 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
-from stereo_vision.calibration import calibrate_stereo, rectify_pair  # noqa: E402
-from stereo_vision.config import BoardSpec, SGBMParams  # noqa: E402
-from stereo_vision.depth import (  # noqa: E402
+from stereo_vision.calibration import calibrate_stereo, rectify_pair
+from stereo_vision.config import BoardSpec, SGBMParams
+from stereo_vision.depth import (
     colorize_depth,
     disparity_to_depth,
     point_cloud,
     save_depth,
     write_ply,
 )
-from stereo_vision.disparity import (  # noqa: E402
+from stereo_vision.disparity import (
     colorize,
     compute_disparity,
     compute_disparity_wls,
     valid_mask,
 )
-from stereo_vision.scene import default_scene, render_view, true_rectified_depth  # noqa: E402
-from stereo_vision.synthetic import default_rig, render_pairs  # noqa: E402
+from stereo_vision.scene import default_scene, render_view, true_rectified_depth
+from stereo_vision.synthetic import default_rig, render_pairs
 
 NEAR_MM, FAR_MM = 600.0, 2400.0
 ERROR_SCALE_PCT = 5.0
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--output", type=Path, default=ROOT / "output" / "scene")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis scene", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--output", type=Path, default=Path("output/scene"))
     parser.add_argument("--supersample", type=int, default=2, help="rays per pixel per axis")
     parser.add_argument("--num-disparities", type=int, default=96)
     parser.add_argument("--block-size", type=int, default=5)
@@ -60,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--samples", action="store_true", help="refresh the committed samples in docs/samples/"
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def score(estimate: np.ndarray, truth: np.ndarray, ids: np.ndarray, visible: np.ndarray, names: list[str]) -> dict:
@@ -133,8 +130,8 @@ def legend(width: int, height: int, colormap: int, left: str, right: str, title:
     return panel
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
     board = BoardSpec()
@@ -220,13 +217,13 @@ def main() -> int:
     (out / "metrics.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     if args.samples:
-        samples = ROOT / "docs" / "samples"
+        samples = Path("docs/samples")
         samples.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(samples / "scene_summary.png"), cv2.resize(summary, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA))
         save_depth(samples / "scene_depth_mm.png", depth)
         step = max(1, len(points) // 60000)
         write_ply(samples / "scene_cloud.ply", points[::step], colors[::step])
-        print(f"    refreshed {samples.relative_to(ROOT)}")
+        print(f"    refreshed {samples}")
 
     s = results["sgbm"]
     print(f"\n  calibration: baseline {calibration.baseline:.2f} mm (true {rig.baseline:.2f}), RMS {calibration.rms:.3f} px")
@@ -244,7 +241,7 @@ def main() -> int:
         w = results["sgbm_wls"]
         print(f"\n  with WLS: coverage {w['coverage_pct']:.1f}%, median {w['median_error_pct']:.2f}%, "
               f"95th pct {w['p95_error_pct']:.2f}%, false in occlusion {w['false_matches_in_occlusion_pct']:.1f}%")
-    print(f"\n  wrote {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out} in {time.perf_counter() - started:.0f} s")
+    print(f"\n  wrote {out} in {time.perf_counter() - started:.0f} s")
     return 0
 
 

@@ -7,24 +7,22 @@ Reads data/pairs/{left,right}, solves both cameras and the rig, and writes an
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import cv2
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from stereo_vision.calibration import (  # noqa: E402
+from stereo_vision.calibration import (
     COVERAGE_WARN_PCT,
     calibrate_stereo,
     rectify_pair,
 )
-from stereo_vision.capture import load_pairs  # noqa: E402
-from stereo_vision.config import BoardSpec  # noqa: E402
+from stereo_vision.capture import load_pairs
+from stereo_vision.config import BoardSpec
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis calibrate", description=__doc__)
     parser.add_argument("--pairs", type=Path, default=Path("data/pairs"))
     parser.add_argument("--output", type=Path, default=Path("calib/stereo.npz"))
     parser.add_argument("--columns", type=int, default=9, help="inner corners across")
@@ -47,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="write a rectified pair with epipolar lines drawn, to eyeball the result",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def write_preview(path: Path, left, right, step: int = 40) -> None:
@@ -63,15 +61,15 @@ def write_preview(path: Path, left, right, step: int = 40) -> None:
     cv2.imwrite(str(path), side_by_side)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     board = BoardSpec(
         columns=args.columns, rows=args.rows, square_size=args.square_size
     )
 
     left_images, right_images, names = load_pairs(args.pairs)
     if not left_images:
-        print(f"no pairs found in {args.pairs}; run scripts/capture_pairs.py first")
+        print(f"no pairs found in {args.pairs}; run ster-vis capture first")
         return 1
     print(f"loaded {len(left_images)} pairs from {args.pairs}")
 

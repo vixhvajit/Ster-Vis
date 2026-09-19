@@ -15,30 +15,28 @@ still somewhere new, and capture stops once coverage and count are reached.
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from stereo_vision.autocapture import AutoTrigger, quick_corners  # noqa: E402
-from stereo_vision.calibration import (  # noqa: E402
+from stereo_vision.autocapture import AutoTrigger, quick_corners
+from stereo_vision.calibration import (
     COVERAGE_GRID,
     COVERAGE_WARN_PCT,
     frame_coverage,
 )
-from stereo_vision.capture import load_pairs, save_pair  # noqa: E402
-from stereo_vision.config import BoardSpec  # noqa: E402
-from stereo_vision.sources import open_source  # noqa: E402
+from stereo_vision.capture import load_pairs, save_pair
+from stereo_vision.config import BoardSpec
+from stereo_vision.sources import open_source
 
 TARGET_COVERAGE_PCT = 75.0
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis capture", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--backend", choices=["auto", "opencv", "picamera2"], default="auto",
                         help="auto uses Pi camera modules when two are attached, else USB")
     parser.add_argument("--left-index", type=int, default=0, help="left camera number")
@@ -62,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--headless", action="store_true", help="no window (needs --auto)")
     parser.add_argument("--stream", type=int, default=None, metavar="PORT",
                         help="serve the preview to a browser on this port")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.headless and not args.auto:
         parser.error("--headless needs --auto: without a window there is no SPACE key to press")
     if args.auto and args.no_detect:
@@ -89,8 +87,8 @@ def to_bgr(image: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image.copy()
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     board = BoardSpec(columns=args.columns, rows=args.rows)
 
     existing = sorted((args.output / "left").glob("*.png"))

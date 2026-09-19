@@ -34,8 +34,10 @@ search from two-dimensional into a scan along one line.
 
 ```
 src/stereo_vision/
+  cli/               the ster-vis command, one module per subcommand
+  viewer.html        the browser viewer, shipped inside the package
   config.py          BoardSpec and SGBMParams
-  capture.py         open two cameras, grab pairs, load them back
+  capture.py         save and load calibration pairs
   calibration.py     corner detection, stereo solve, frame coverage, rectification
   disparity.py       StereoSGBM matcher, optional WLS filter, colorizing
   depth.py           disparity to depth, depth files, point cloud, PLY export
@@ -48,16 +50,7 @@ src/stereo_vision/
   benchmark.py       frame rate per preset, and accuracy against truth
   synthetic.py       virtual stereo rig that photographs the chessboard
   scene.py           ray-traced 3D scene with exact per-pixel depth
-scripts/
-  make_chessboard.py write a printable calibration target
-  capture_pairs.py   capture board pairs, with a live coverage grid or --auto
-  calibrate.py       solve the rig and write calib/stereo.npz
-  run_disparity.py   rectify, match, save depth; live with a window or streamed
-  benchmark.py       measure presets on this machine
-  view_depth.py      inspect a depth map (hover for mm, click to measure)
-  synthetic_check.py calibration check against a rig with known geometry
-  scene_depth.py     depth map of a synthetic scene, scored pixel by pixel
-viewer/index.html    browser viewer for point clouds and depth maps, no install
+deploy/pi/            installer, systemd service and settings for a Raspberry Pi
 docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
 ```
@@ -96,12 +89,42 @@ looking several metres ahead. You can also get closer by raising
 The table covers matching error only. In practice calibration error adds to it
 and dominates at long range; see [what the synthetic scene shows](#what-the-synthetic-scene-shows).
 
-## Setup
+## Install
+
+Python 3.11 or newer. Into a virtual environment:
 
 ```powershell
+pip install "ster-vis @ git+https://github.com/vixhvajit/Ster-Vis"
+ster-vis --version
+```
+
+That installs the `ster-vis` command:
+
+| Command | Does |
+|---|---|
+| `ster-vis chessboard` | write a printable calibration target (PDF) |
+| `ster-vis capture` | capture calibration pairs; `--auto` for a headless Pi |
+| `ster-vis calibrate` | solve the rig from captured pairs |
+| `ster-vis depth` | depth from two images, or live from cameras |
+| `ster-vis view` | inspect a depth map: hover for mm, click to measure |
+| `ster-vis viewer` | open the browser viewer for point clouds and depth maps |
+| `ster-vis benchmark` | frame rate per preset on this machine |
+| `ster-vis doctor` | check an install: versions, cameras, calibration, throttling |
+| `ster-vis check`, `ster-vis scene` | try the pipeline on synthetic data with known truth |
+
+Each takes `--help`. Output files (calibration, depth maps) are written
+relative to the folder you run in. The optional extra `ster-vis[viewer]` adds
+Open3D for 3D point cloud windows.
+
+**To work on the code**, clone it and install it editable, with the test tools:
+
+```powershell
+git clone https://github.com/vixhvajit/Ster-Vis.git
+cd Ster-Vis
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
+.venv\Scripts\activate        # Linux/macOS: source .venv/bin/activate
+pip install -e ".[dev]"
+python -m pytest
 ```
 
 `opencv-contrib-python` is used rather than the base package because the WLS
@@ -131,7 +154,7 @@ When printing:
 For another size or paper, generate one:
 
 ```powershell
-python scripts/make_chessboard.py --columns 9 --rows 6 --square-mm 20 --paper letter
+ster-vis chessboard --columns 9 --rows 6 --square-mm 20 --paper letter
 ```
 
 Bigger squares are easier to detect from far away. If the board doesn't fit
@@ -140,7 +163,7 @@ the page, the script tells you so.
 ### 1. Capture calibration pairs
 
 ```powershell
-python scripts/capture_pairs.py --left-index 0 --right-index 1 --columns 9 --rows 6
+ster-vis capture --left-index 0 --right-index 1 --columns 9 --rows 6
 ```
 
 SPACE saves a pair, Q quits. `--columns` and `--rows` count **inner corners**,
@@ -160,7 +183,7 @@ pixels **15.8 px** off after rectification. Boards spread to the edges covered
 ### 2. Calibrate
 
 ```powershell
-python scripts/calibrate.py --square-size 25 --preview output/rectified.png
+ster-vis calibrate --square-size 25 --preview output/rectified.png
 ```
 
 `--square-size` sets the unit for everything downstream: pass millimetres and
@@ -185,7 +208,7 @@ More pairs, and a board whose square size you measured carefully, tighten it.
 ### 3. Disparity and depth
 
 ```powershell
-python scripts/run_disparity.py --left data/pairs/left/000.png --right data/pairs/right/000.png --depth-out output/depth.png --ply output/cloud.ply
+ster-vis depth --left data/pairs/left/000.png --right data/pairs/right/000.png --depth-out output/depth.png --ply output/cloud.ply
 ```
 
 That writes:
@@ -203,7 +226,7 @@ tools read it too.
 Or live, from the cameras:
 
 ```powershell
-python scripts/run_disparity.py --live --preset balanced
+ster-vis depth --live --preset balanced
 ```
 
 `--preset` trades accuracy for speed (see [Presets](#presets)), and
@@ -261,17 +284,23 @@ git clone https://github.com/vixhvajit/Ster-Vis.git
 cd Ster-Vis
 python3 -m venv --system-site-packages .venv # lets the venv see picamera2
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install .
+ster-vis doctor --cameras
 ```
 
 Picamera2 comes from apt rather than pip, as Raspberry Pi recommends: apt
 guarantees a matching libcamera. `--system-site-packages` makes it visible
-inside the virtual environment.
+inside the virtual environment. `ster-vis doctor --cameras` checks the whole
+setup and says how to fix anything missing.
 
-**On the older Bookworm release**, install `requirements-pi-bookworm.txt`
-instead of `requirements.txt`. Bookworm's picamera2 is built against numpy
-1.24, and current OpenCV needs numpy 2, which can break it. That file pins the
-last OpenCV that works with numpy 1. CI tests both stacks on ARM64.
+**On the older Bookworm release**, install with
+`pip install -c constraints-pi-bookworm.txt .` instead. Bookworm's picamera2 is
+built against numpy 1.24, and current OpenCV needs numpy 2, which can break
+it. The constraints file pins the last OpenCV that works with numpy 1. CI
+tests both stacks on ARM64.
+
+To run the Pi as a depth camera that starts at boot, see
+[Deploy on a Raspberry Pi](#deploy-on-a-raspberry-pi).
 
 `full-upgrade` also brings a libcamera new enough for software camera sync.
 Without it, capture falls back to timestamp pairing and tells you so.
@@ -283,7 +312,7 @@ Everything below works over SSH, watching from a laptop's browser.
 **1. Capture calibration pairs.** Print the board, then:
 
 ```bash
-python scripts/capture_pairs.py --auto --headless --stream 8080 --width 1280 --height 720
+ster-vis capture --auto --headless --stream 8080 --width 1280 --height 720
 ```
 
 Open the printed address (`http://<pi-name>.local:8080/`) on your laptop.
@@ -295,13 +324,13 @@ poses. Capture stops at 25 pairs and 75% coverage.
 **2. Calibrate:**
 
 ```bash
-python scripts/calibrate.py --square-size 25
+ster-vis calibrate --square-size 25
 ```
 
 **3. Measure your Pi's speed:**
 
 ```bash
-python scripts/benchmark.py --threads 1,2,4
+ster-vis benchmark --threads 1,2,4
 ```
 
 This prints a table of frame rate per preset and thread count, and warns if
@@ -312,7 +341,7 @@ real cameras with your calibration.
 **4. Run live:**
 
 ```bash
-python scripts/run_disparity.py --live --preset pi5 --headless --stream 8080 --save-dir output/live
+ster-vis depth --live --preset pi5 --headless --stream 8080 --save-dir output/live
 ```
 
 The browser shows the camera image beside colour-coded depth, with the frame
@@ -338,7 +367,7 @@ The stream has no password. Anyone on the same network can open it.
 *Matching work* is pixels × disparity range relative to `quality`, which is
 what matching time scales with. The error columns are median depth error on a
 textured target swept from 0.6 m to 3 m, with the 60 mm synthetic rig
-calibrated from rendered chessboards (`python scripts/benchmark.py
+calibrated from rendered chessboards (`ster-vis benchmark
 --accuracy`). They don't depend on the computer. Frame rates do, so measure
 them on your Pi with the benchmark.
 
@@ -353,6 +382,53 @@ How to read it:
   core where SGBM uses several, so which of `pi5` and `pi5-bm` is faster
   depends on the machine: the benchmark tells you.
 
+### Deploy on a Raspberry Pi
+
+To make the Pi a depth camera that starts at boot and restarts after a crash,
+run the installer from a checkout:
+
+```bash
+git clone https://github.com/vixhvajit/Ster-Vis.git
+cd Ster-Vis
+sudo deploy/pi/install.sh
+```
+
+It installs the package into `/opt/ster-vis`, puts `ster-vis` on the path,
+creates a `ster-vis` system user in the `video` group (which camera access
+needs), and installs a systemd service, left switched off. It detects Bookworm
+and applies the right constraints. Running it again upgrades in place and
+keeps your settings.
+
+Then calibrate, hand the calibration to the service, and start it:
+
+```bash
+ster-vis doctor --cameras
+ster-vis capture --auto --headless --stream 8080
+ster-vis calibrate --square-size 25
+sudo cp calib/stereo.npz /etc/ster-vis/stereo.npz
+sudo systemctl enable --now ster-vis
+journalctl -u ster-vis -f                     # frame rate and skew, live
+```
+
+The live view is then at `http://<pi-name>.local:8080/`.
+
+| Where | What |
+|---|---|
+| `/etc/ster-vis/ster-vis.env` | settings: preset, resolution, focus, stream port, saving |
+| `/etc/ster-vis/stereo.npz` | the calibration the service uses |
+| `/var/lib/ster-vis/` | the only place the service can write, for saved depth maps |
+
+The service won't start until a calibration exists, so it waits rather than
+crash-looping. It runs with systemd hardening: a read-only system and no
+access to home folders. After editing the settings, run
+`sudo systemctl restart ster-vis`. To remove everything, run
+`sudo deploy/pi/uninstall.sh`; add `--purge` to delete settings and data as well.
+
+CI runs this installer on ARM64 Ubuntu on every push: it verifies the unit
+with `systemd-analyze`, checks the service waits for a calibration, re-runs
+the installer to confirm settings survive, and uninstalls. It hasn't been run
+on a real Raspberry Pi yet.
+
 ## Viewing results
 
 Four ways to look at depth maps and point clouds, from no install at all to
@@ -363,29 +439,29 @@ full 3D editors. Sample files to try them on are in
 
 ### Browser viewer — nothing to install
 
-Open **[viewer/index.html](viewer/index.html)** in Chrome, Edge, Firefox or
-Safari and drop a file on it. It is one self-contained file: it works offline
-and files never leave your machine.
+```powershell
+ster-vis viewer output/cloud.ply
+```
+
+This opens the viewer in your browser with the file loaded; with no file it
+opens empty, ready for files dropped onto it. The viewer is one
+self-contained page ([source](src/stereo_vision/viewer.html)) served from your
+own machine on 127.0.0.1 only. It works offline, and files never leave your
+machine. Any current Chrome, Edge, Firefox or Safari will do.
 
 - **Point clouds (.ply):** drag to orbit, right-drag or Shift-drag to pan,
   scroll to zoom. Colour by the image or by depth.
 - **Depth maps (16-bit .png, .npy):** hover to read the exact depth in mm,
   click to pin points, adjust the colour range.
 
-The *Sample* buttons and `?open=` links need the repo to be served, because
-browsers block pages opened from disk from reading neighbouring files:
+`--color depth` starts a point cloud coloured by distance. The *Sample*
+buttons load the files in `docs/samples`, so they work when you run the
+command from a checkout of this repository.
+
+### `ster-vis view` — uses what is already installed
 
 ```powershell
-python -m http.server 8000
-```
-
-Then open <http://localhost:8000/viewer/?open=../docs/samples/scene_cloud.ply>.
-Add `&color=depth` to colour the cloud by distance.
-
-### `view_depth.py` — uses what is already installed
-
-```powershell
-python scripts/view_depth.py output/depth.png --calibration calib/stereo.npz
+ster-vis view output/depth.png --calibration calib/stereo.npz
 ```
 
 Hover to read the depth under the cursor. Click two points and, with
@@ -395,8 +471,8 @@ cycles colour maps, `s` saves a screenshot, `q` quits.
 Passing a `.ply` opens it in Open3D, if that is installed:
 
 ```powershell
-pip install -r requirements-viewer.txt
-python scripts/view_depth.py output/cloud.ply
+pip install "ster-vis[viewer]"
+ster-vis view output/cloud.ply
 ```
 
 Open3D is optional because it pulls in about 50 packages. It has wheels for
@@ -450,11 +526,11 @@ so you can see it work, and see how accurate it is, before buying hardware.
 ### Calibration check
 
 ```powershell
-python scripts/synthetic_check.py
+ster-vis check
 ```
 
 Renders 25 chessboard pairs through a virtual 60 mm stereo rig with realistic
-lens distortion, blur and sensor noise, runs the real `calibrate.py` on them,
+lens distortion, blur and sensor noise, runs the real `ster-vis calibrate` on them,
 and compares the result with the true rig:
 
 | Check | Result |
@@ -468,7 +544,7 @@ and compares the result with the true rig:
 ### Dense depth map
 
 ```powershell
-python scripts/scene_depth.py
+ster-vis scene
 ```
 
 Ray traces a textured room (walls, floor, sphere, box, a tilted panel) through

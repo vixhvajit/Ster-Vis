@@ -14,36 +14,34 @@ Speed is set by --preset (see stereo_vision/presets.py):
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from stereo_vision.calibration import load_calibration, rectify_pair  # noqa: E402
-from stereo_vision.depth import (  # noqa: E402
+from stereo_vision.calibration import load_calibration, rectify_pair
+from stereo_vision.depth import (
     colorize_depth,
     disparity_to_depth,
     point_cloud,
     save_depth,
     write_ply,
 )
-from stereo_vision.disparity import (  # noqa: E402
+from stereo_vision.disparity import (
     colorize,
     compute_disparity,
     compute_disparity_wls,
     valid_mask,
 )
-from stereo_vision.live import DepthPipeline, RateMeter, overlay  # noqa: E402
-from stereo_vision.presets import DEFAULT_MIN_DISTANCE_MM, PRESETS, get_preset  # noqa: E402
-from stereo_vision.sources import open_source  # noqa: E402
+from stereo_vision.live import DepthPipeline, RateMeter, overlay
+from stereo_vision.presets import DEFAULT_MIN_DISTANCE_MM, PRESETS, get_preset
+from stereo_vision.sources import open_source
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis depth", 
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--calibration", type=Path, default=Path("calib/stereo.npz"))
@@ -65,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     output.add_argument("--save", type=Path, default=None, help="write the color disparity image")
     output.add_argument("--depth-out", type=Path, default=None,
                         help="write depth in mm: .png for 16-bit PNG, .npy for float32 "
-                             "(open with scripts/view_depth.py)")
+                             "(open with ster-vis view)")
     output.add_argument("--ply", type=Path, default=None, help="write a point cloud")
     output.add_argument("--max-depth", type=float, default=None,
                         help="drop points beyond this depth from the point cloud")
@@ -93,7 +91,7 @@ def parse_args() -> argparse.Namespace:
                       help="seconds between saved depth maps (default 1)")
     live.add_argument("--duration", type=float, default=None,
                       help="stop after this many seconds (default: run until Q or Ctrl+C)")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def report(disparity: np.ndarray, calibration, params) -> None:
@@ -231,12 +229,12 @@ def run_live(args, calibration) -> int:
     return 0
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if args.threads is not None:
         cv2.setNumThreads(args.threads)
     if not args.calibration.exists():
-        print(f"no calibration at {args.calibration}; run scripts/calibrate.py first")
+        print(f"no calibration at {args.calibration}; run ster-vis calibrate first")
         return 1
     calibration = load_calibration(args.calibration)
     return run_live(args, calibration) if args.live else run_files(args, calibration)

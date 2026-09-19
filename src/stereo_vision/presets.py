@@ -51,7 +51,7 @@ def disparities_for(calibration: StereoCalibration, min_distance_mm: float) -> i
     return int(max(16, np.ceil(needed / 16.0) * 16))
 
 
-# Chosen from a distance sweep against ray-traced truth (scripts/benchmark.py
+# Chosen from a distance sweep against ray-traced truth (ster-vis benchmark
 # --accuracy). sgbm_3way is kept throughout: it matched the other SGBM modes'
 # accuracy at a third of their time. Below 0.375 scale, near-range error
 # rose by about 70%, so no preset goes lower. Block matching was as accurate on

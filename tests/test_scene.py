@@ -6,9 +6,6 @@ on rendered images and compare every pixel with the exact ray-traced depth.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import cv2
 import numpy as np
 import pytest
@@ -30,8 +27,6 @@ from stereo_vision.scene import (
     true_rectified_depth,
 )
 from stereo_vision.synthetic import default_rig, render_pairs, true_calibration
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 
 @pytest.fixture(scope="module")
@@ -146,7 +141,7 @@ class TestDepthFiles:
 class TestViewer:
     def test_click_to_measure_matches_the_scene_geometry(self):
         """Two points on the back wall (z = 2200 mm) measured through back_project."""
-        from view_depth import back_project
+        from stereo_vision.cli.view import back_project
 
         calibration = true_calibration(default_rig())
         P1, R1 = calibration.P1, calibration.R1
@@ -166,7 +161,7 @@ class TestViewer:
     ):
         import builtins
 
-        import view_depth
+        from stereo_vision.cli import view as view_depth
 
         real_import = builtins.__import__
 
@@ -177,4 +172,4 @@ class TestViewer:
 
         monkeypatch.setattr(builtins, "__import__", no_open3d)
         assert view_depth.view_point_cloud(tmp_path / "cloud.ply") == 1
-        assert "viewer/index.html" in capsys.readouterr().out
+        assert "ster-vis viewer" in capsys.readouterr().out

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -39,7 +40,7 @@ jobs:
           - name: ARM64, Pi OS Bookworm stack (Python 3.11, numpy 1.24, OpenCV 4.11)
             os: ubuntu-24.04-arm
             python-version: "3.11"
-            requirements: requirements-pi-bookworm.txt
+            constraints: constraints-pi-bookworm.txt
             numpy: "1.24.*"
 
     steps:
@@ -49,7 +50,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: pyproject.toml
 
       # The GUI build of OpenCV links against libGL and glib, which the Linux
       # runners do not ship. Package names moved around in Ubuntu 24.04, so try
@@ -61,26 +62,17 @@ jobs:
           sudo apt-get install -y -qq libgl1 libglib2.0-0t64 \
             || sudo apt-get install -y -qq libgl1-mesa-glx libglib2.0-0
 
-      - name: Install dependencies
+      - name: Install the package
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          if [ -n "${{ matrix.requirements }}" ]; then
-            pip install -r "${{ matrix.requirements }}" pytest ${{ matrix.numpy && format('"numpy=={0}"', matrix.numpy) || '' }}
+          if [ -n "${{ matrix.constraints }}" ]; then
+            pip install -c "${{ matrix.constraints }}" -e ".[dev]" "numpy==${{ matrix.numpy }}"
           else
-            pip install -r requirements-dev.txt
+            pip install -e ".[dev]"
           fi
           python -c "import cv2, numpy; print('OpenCV', cv2.__version__, '| numpy', numpy.__version__)"
-
-      - name: Check the package imports
-        run: python -c "import sys; sys.path.insert(0, 'src'); import stereo_vision; print(stereo_vision.__all__)"
-
-      - name: Check the scripts parse their arguments
-        shell: bash
-        run: |
-          for script in scripts/*.py; do
-            python "$script" --help > /dev/null
-          done
+          ster-vis --version
 
       - name: Run tests
         run: python -m pytest
@@ -89,4 +81,85 @@ jobs:
       # cloud CPU, not a Pi, so they are not a guide to Pi frame rates.
       - name: Benchmark smoke test
         if: matrix.benchmark
-        run: python scripts/benchmark.py --presets pi5,pi5-fast,pi5-bm --threads 4
+        run: ster-vis benchmark --presets pi5,pi5-fast,pi5-bm --threads 4
+
+  package:
+    name: Build and install the package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install OpenCV system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgl1 libglib2.0-0t64
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Check the wheel's contents
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          required = ["stereo_vision/viewer.html", "stereo_vision/cli/main.py", "LICENSE", "NOTICE"]
+          missing = [r for r in required if not any(n.endswith(r) for n in names)]
+          stray = [n for n in names if n.startswith(("tests/", "docs/", "output/", "deploy/"))]
+          assert not missing, f"missing from wheel: {missing}"
+          assert not stray, f"should not be in wheel: {stray}"
+          print(f"{len(names)} files, all required present")
+          EOF
+      - name: Install the wheel in a clean environment and run it outside the repo
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+          mkdir /tmp/elsewhere && cd /tmp/elsewhere
+          /tmp/clean/bin/ster-vis --version
+          /tmp/clean/bin/python -m stereo_vision --version
+          /tmp/clean/bin/ster-vis chessboard
+          test -f docs/chessboard_9x6_25mm_a4.pdf
+          /tmp/clean/bin/ster-vis check --keep
+          /tmp/clean/bin/ster-vis doctor --calibration output/synthetic/stereo.npz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  deploy:
+    name: Pi installer and service (ARM64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the shell scripts
+        run: shellcheck deploy/pi/*.sh
+      - name: Install system packages the Pi image would already have
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-venv libgl1 libglib2.0-0t64
+      # Runs the real installer. The apt step is skipped because picamera2
+      # only exists in Raspberry Pi OS; everything else is what a Pi runs.
+      - name: Run the installer
+        run: sudo STER_VIS_SKIP_APT=1 deploy/pi/install.sh
+      - name: Check the installed service
+        run: |
+          systemd-analyze verify /etc/systemd/system/ster-vis.service
+          id ster-vis
+          id -nG ster-vis | grep -qw video
+          ster-vis --version
+          sudo -u ster-vis /opt/ster-vis/venv/bin/ster-vis doctor --calibration /etc/ster-vis/stereo.npz
+      - name: Service waits for a calibration instead of failing
+        run: |
+          sudo systemctl start ster-vis.service
+          systemctl show ster-vis.service -p ConditionResult | grep -q "ConditionResult=no"
+          systemctl is-failed ster-vis.service && exit 1 || true
+      - name: Re-running the installer keeps settings
+        run: |
+          echo "# custom" | sudo tee -a /etc/ster-vis/ster-vis.env
+          sudo STER_VIS_SKIP_APT=1 deploy/pi/install.sh
+          grep -q "# custom" /etc/ster-vis/ster-vis.env
+      - name: Uninstall
+        run: |
+          sudo deploy/pi/uninstall.sh --purge
+          test ! -e /opt/ster-vis && test ! -e /etc/ster-vis && ! id ster-vis

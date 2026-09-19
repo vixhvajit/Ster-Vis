@@ -1,0 +1,33 @@
+[Unit]
+Description=Ster-Vis stereo depth camera
+Documentation=https://github.com/vixhvajit/Ster-Vis
+After=network-online.target
+Wants=network-online.target
+# Without a calibration there is nothing useful to run; wait for one instead
+# of failing and restarting in a loop.
+ConditionPathExists=/etc/ster-vis/stereo.npz
+
+[Service]
+Type=simple
+User=ster-vis
+Group=ster-vis
+SupplementaryGroups=video
+EnvironmentFile=/etc/ster-vis/ster-vis.env
+WorkingDirectory=/var/lib/ster-vis
+# $STER_VIS_ARGS, unbraced, is split into separate options.
+ExecStart=/opt/ster-vis/venv/bin/ster-vis depth --live --headless --calibration /etc/ster-vis/stereo.npz $STER_VIS_ARGS
+Restart=on-failure
+RestartSec=5
+# Print status lines straight to the journal rather than buffering them.
+Environment=PYTHONUNBUFFERED=1
+
+# Hardening: read-only system, no home directories, writable only where
+# depth maps may be saved. Camera devices stay reachable (no PrivateDevices).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/ster-vis
+
+[Install]
+WantedBy=multi-user.target

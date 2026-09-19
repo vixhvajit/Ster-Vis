@@ -1,9 +1,9 @@
 """Benchmark the presets: frame rate on this machine, and accuracy against truth.
 
-  python scripts/benchmark.py                  timing, synthetic frame (about a minute)
-  python scripts/benchmark.py --threads 1,2,4  same, at several thread counts
-  python scripts/benchmark.py --accuracy       also score depth over a 0.6-3 m sweep
-  python scripts/benchmark.py --live           time real cameras with your calibration
+  ster-vis benchmark                  timing, on a synthetic frame
+  ster-vis benchmark --threads 1,2,4  same, at several thread counts
+  ster-vis benchmark --accuracy       also score depth over a 0.6-3 m sweep
+  ster-vis benchmark --live           time real cameras with your calibration
 
 Timing is only meaningful on the machine you will run on, so run this on the
 Raspberry Pi itself. Accuracy does not depend on the machine, and is slow to
@@ -17,17 +17,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
-from stereo_vision.benchmark import (  # noqa: E402
+from stereo_vision.benchmark import (
     SWEEP_MM,
     evaluate_preset,
     machine_description,
@@ -35,35 +32,35 @@ from stereo_vision.benchmark import (  # noqa: E402
     render_sweep,
     time_preset,
 )
-from stereo_vision.presets import DEFAULT_MIN_DISTANCE_MM, PRESETS, get_preset  # noqa: E402
-from stereo_vision.synthetic import default_rig, true_calibration  # noqa: E402
+from stereo_vision.presets import DEFAULT_MIN_DISTANCE_MM, PRESETS, get_preset
+from stereo_vision.synthetic import default_rig, true_calibration
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ster-vis benchmark", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--presets", default=",".join(PRESETS), help="comma-separated preset names")
     parser.add_argument("--threads", default=None, help="comma-separated OpenCV thread counts to try")
     parser.add_argument("--min-distance", type=float, default=DEFAULT_MIN_DISTANCE_MM)
     parser.add_argument("--accuracy", action="store_true", help="score depth over a distance sweep (slow)")
     parser.add_argument("--live", action="store_true", help="time real cameras instead of a synthetic frame")
-    parser.add_argument("--calibration", type=Path, default=ROOT / "calib" / "stereo.npz",
+    parser.add_argument("--calibration", type=Path, default=Path("calib/stereo.npz"),
                         help="calibration for --live")
     parser.add_argument("--backend", choices=["auto", "opencv", "picamera2"], default="auto")
     parser.add_argument("--seconds", type=float, default=10.0, help="per preset, with --live")
     parser.add_argument("--json", type=Path, default=None, help="also write results as JSON")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def synthetic_rows(presets, threads, args) -> list[dict]:
     rig = default_rig()
     calibration = true_calibration(rig)
     print("rendering a test frame ...", flush=True)
-    frames = render_sweep(rig, distances_mm=(1500,), cache=ROOT / "output" / "benchmark" / "frame_1500.npz")
+    frames = render_sweep(rig, distances_mm=(1500,), cache=Path("output/benchmark/frame_1500.npz"))
     frame = frames[0]
     sweep = None
     if args.accuracy:
         print(f"rendering the accuracy sweep ({len(SWEEP_MM)} distances; cached after the first run) ...", flush=True)
-        sweep = render_sweep(rig, cache=ROOT / "output" / "benchmark" / "sweep.npz")
+        sweep = render_sweep(rig, cache=Path("output/benchmark/sweep.npz"))
 
     rows = []
     for count in threads:
@@ -147,8 +144,8 @@ def markdown(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     presets = [get_preset(name.strip()) for name in args.presets.split(",") if name.strip()]
     threads = [int(t) for t in args.threads.split(",")] if args.threads else [0]
 
