@@ -103,6 +103,10 @@ class RosPublisher:
             self.pub[f"obstacle_{name}"] = create(Range, f"obstacles/{name}", qos)
 
         self.tf = StaticTransformBroadcaster(self.node)
+        # ROS's compiled message code aborts the whole process on an int where a
+        # float field is expected, so coerce: argparse leaves defaults as ints.
+        mount_xyz = tuple(float(v) for v in mount_xyz)
+        mount_rpy = tuple(float(v) for v in mount_rpy)
         transforms = []
         for parent, child, xyz, quaternion in (
             (parent_frame, BODY_FRAME, mount_xyz, quaternion_from_rpy(*mount_rpy)),
@@ -166,8 +170,9 @@ class RosPublisher:
         scan = frame.scan
         msg = self.msg["LaserScan"]()
         msg.header.stamp, msg.header.frame_id = stamp, BODY_FRAME
-        msg.angle_min, msg.angle_max, msg.angle_increment = scan.angle_min, scan.angle_max, scan.angle_increment
-        msg.range_min, msg.range_max = scan.range_min, scan.range_max
+        msg.angle_min, msg.angle_max = float(scan.angle_min), float(scan.angle_max)
+        msg.angle_increment = float(scan.angle_increment)
+        msg.range_min, msg.range_max = float(scan.range_min), float(scan.range_max)
         msg.ranges = scan.ranges.astype(float).tolist()
         return msg
 
@@ -177,8 +182,8 @@ class RosPublisher:
             msg = self.msg["Range"]()
             msg.header.stamp, msg.header.frame_id = stamp, BODY_FRAME
             msg.radiation_type = msg.INFRARED  # closest listed type; the ROS message has no "stereo"
-            msg.field_of_view = field_of_view
-            msg.min_range, msg.max_range = frame.scan.range_min, frame.scan.range_max
+            msg.field_of_view = float(field_of_view)
+            msg.min_range, msg.max_range = float(frame.scan.range_min), float(frame.scan.range_max)
             value = frame.obstacles.sectors.get(name)
             msg.range = float("inf") if value is None else float(value)
             yield name, msg

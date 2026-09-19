@@ -53,7 +53,10 @@ def collect(publisher, listener, wanted: dict, timeout_s: float = 10.0) -> dict:
     while len(received) < len(wanted) and time.monotonic() < deadline:
         publisher.publish(frame(sequence))
         sequence += 1
-        rclpy.spin_once(listener, timeout_sec=0.05)
+        # spin_once runs a single callback, so drain several per publish or the
+        # first busy subscription starves the rest.
+        for _ in range(2 * len(wanted)):
+            rclpy.spin_once(listener, timeout_sec=0.01)
     missing = set(wanted) - set(received)
     assert not missing, f"no message on {missing}"
     return received
@@ -114,7 +117,9 @@ def test_static_tf_links_the_robot_to_the_camera(ros):
     t = transform.transform.translation
     assert (t.x, t.y, t.z) == pytest.approx((0.1, 0.0, 0.3))
     q = transform.transform.rotation
-    assert (q.x, q.y, q.z, q.w) == pytest.approx((-0.5, 0.5, -0.5, 0.5))
+    # q and -q are the same rotation; tf2 may return either sign.
+    sign = 1.0 if q.w > 0 else -1.0
+    assert (sign * q.x, sign * q.y, sign * q.z, sign * q.w) == pytest.approx((-0.5, 0.5, -0.5, 0.5))
 
 
 def test_cli_node_runs_from_a_recording(tmp_path):
@@ -145,7 +150,8 @@ def test_cli_node_runs_from_a_recording(tmp_path):
         listener.create_subscription(Image, "/cli_test/depth/image", lambda m: got.setdefault("depth", m), 10)
         deadline = time.monotonic() + 30.0
         while len(got) < 2 and time.monotonic() < deadline and node.poll() is None:
-            rclpy.spin_once(listener, timeout_sec=0.1)
+            for _ in range(4):
+                rclpy.spin_once(listener, timeout_sec=0.05)
         listener.destroy_node()
         assert len(got) == 2, f"received {list(got)}; node output:\n{node.stdout.read() if node.poll() is not None else ''}"
         assert got["depth"].width == 640 and got["depth"].encoding == "32FC1"

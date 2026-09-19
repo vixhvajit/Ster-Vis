@@ -40,7 +40,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[
     parser.add_argument("--namespace", default="ster_vis", help="topic namespace (default ster_vis)")
     parser.add_argument("--parent-frame", default="base_link",
                         help="TF frame the camera is mounted on (default base_link)")
-    parser.add_argument("--mount", type=float, nargs=6, default=[0, 0, 0, 0, 0, 0],
+    parser.add_argument("--mount", type=float, nargs=6, default=[0.0] * 6,
                         metavar=("X", "Y", "Z", "ROLL", "PITCH", "YAW"),
                         help="camera pose on the parent frame: metres and radians, REP 103 axes")
     parser.add_argument("--duration", type=float, default=None, help="stop after this many seconds")

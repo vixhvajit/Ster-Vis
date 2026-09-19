@@ -173,3 +173,11 @@ def test_body_to_optical_rotation():
     from stereo_vision.ros2 import BODY_TO_OPTICAL, quaternion_from_rpy
 
     assert quaternion_from_rpy(-math.pi / 2, 0, -math.pi / 2) == pytest.approx(BODY_TO_OPTICAL, abs=1e-12)
+
+
+def test_ros_mount_defaults_are_floats():
+    """ROS aborts the process on an int in a float field; argparse keeps defaults as given."""
+    from stereo_vision.cli.ros2 import parse_args
+
+    args, _ = parse_args(["--calibration", "x.npz"])
+    assert all(isinstance(v, float) for v in args.mount)
