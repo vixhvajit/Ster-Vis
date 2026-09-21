@@ -12,6 +12,13 @@ Topics, under the node's namespace (default /ster_vis):
   obstacles/left       sensor_msgs/Range       nearest distance per sector
   obstacles/centre
   obstacles/right
+  map_points           sensor_msgs/PointCloud2 the accumulated map (only with --map)
+
+With ``--map``, every frame is also fused into one point cloud map of the
+place. The pose comes from TF: the node looks up the map frame (``--map-frame``,
+default ``map``) against the camera's optical frame, so whatever already
+publishes that transform — odometry, an EKF, a SLAM package, motion capture —
+decides where each frame lands. Nothing about the map is estimated here.
 
 TF (static): <parent_frame> -> ster_vis_link -> ster_vis_left_optical_frame.
 ster_vis_link follows REP 103 (x forward, y left, z up); the optical frame
@@ -25,9 +32,11 @@ that can see it (a venv with --system-site-packages).
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
 
+from .mapping import MapConfig, PointCloudMap, Pose
 from .outputs import BODY_FRAME, OPTICAL_FRAME, CameraModel, RobotFrame
 
 ROS_MISSING = (
@@ -66,11 +75,14 @@ class RosPublisher:
         mount_rpy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         confidence: bool = False,
         ros_args: list[str] | None = None,
+        map_config: MapConfig | None = None,
+        map_frame: str = "map",
+        map_publish_hz: float = 1.0,
     ) -> None:
         try:
             import rclpy
             from geometry_msgs.msg import TransformStamped
-            from rclpy.qos import QoSProfile, ReliabilityPolicy
+            from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
             from sensor_msgs.msg import CameraInfo, Image, LaserScan, PointCloud2, PointField, Range
             from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
         except ImportError as error:
@@ -101,6 +113,23 @@ class RosPublisher:
         self.sectors = ("left", "centre", "right")
         for name in self.sectors:
             self.pub[f"obstacle_{name}"] = create(Range, f"obstacles/{name}", qos)
+
+        self.map: PointCloudMap | None = None
+        self.map_frame = map_frame
+        self.map_missing_tf = 0
+        self._map_period = 1.0 / map_publish_hz if map_publish_hz > 0 else 0.0
+        self._map_published = 0.0
+        if map_config is not None:
+            from tf2_ros import Buffer, TransformListener
+
+            self.map = PointCloudMap(map_config)
+            # Latched: RViz, or anything that subscribes late, gets the map as
+            # it stands instead of waiting for the next one.
+            latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                 durability=DurabilityPolicy.TRANSIENT_LOCAL)
+            self.pub["map_points"] = create(PointCloud2, "map_points", latched)
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self.node)
 
         self.tf = StaticTransformBroadcaster(self.node)
         # ROS's compiled message code aborts the whole process on an int where a
@@ -188,6 +217,62 @@ class RosPublisher:
             msg.range = float("inf") if value is None else float(value)
             yield name, msg
 
+    def _camera_pose(self, stamp) -> Pose | None:
+        """Where the camera was, from TF: the map frame against the optical frame."""
+        from rclpy.duration import Duration
+        from rclpy.time import Time
+        from tf2_ros import TransformException
+
+        # The frame's own time first, so the map is not smeared by lookup lag;
+        # the latest transform as a fallback, for a TF source slower than the
+        # camera or one that has not caught up yet.
+        for at in (Time.from_msg(stamp), Time()):
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    self.map_frame, OPTICAL_FRAME, at, timeout=Duration(seconds=0.05))
+            except TransformException:
+                continue
+            position, rotation = transform.transform.translation, transform.transform.rotation
+            return Pose.from_optical([position.x, position.y, position.z],
+                                     quaternion=[rotation.x, rotation.y, rotation.z, rotation.w])
+        self.map_missing_tf += 1
+        return None
+
+    def _map_cloud(self, stamp):
+        """The map so far as an unorganised PointCloud2 in the map frame."""
+        field_type = self.msg["PointField"]
+        points = self.map.points()
+        cloud = np.empty((len(points), 4), np.float32)
+        cloud[:, :3] = points
+        cloud[:, 3] = self.map.intensities().astype(np.float32)
+        msg = self.msg["PointCloud2"]()
+        msg.header.stamp, msg.header.frame_id = stamp, self.map_frame
+        msg.height, msg.width = 1, len(points)
+        msg.fields = [field_type(name=n, offset=4 * i, datatype=field_type.FLOAT32, count=1)
+                      for i, n in enumerate(("x", "y", "z", "intensity"))]
+        msg.is_bigendian = False
+        msg.point_step = 16
+        msg.row_step = 16 * len(points)
+        msg.is_dense = True
+        msg.data = cloud.tobytes()
+        return msg
+
+    def update_map(self, frame: RobotFrame, stamp) -> bool:
+        """Fuse this frame into the map at its TF pose; True if it was used."""
+        pose = self._camera_pose(stamp)
+        if pose is None or not self.map.add_frame(frame, pose):
+            return False
+        now = time.monotonic()
+        if self._map_period and now - self._map_published < self._map_period:
+            return True
+        self._map_published = now
+        self.pub["map_points"].publish(self._map_cloud(stamp))
+        return True
+
+    def save_map(self, directory) -> dict:
+        """Write the map to a folder, as ``ster-vis map`` does."""
+        return self.map.save(directory)
+
     def publish(self, frame: RobotFrame) -> None:
         stamp = self._stamp(frame.timestamp)
         info = self._camera_info(stamp)
@@ -202,6 +287,8 @@ class RosPublisher:
         self.pub["scan"].publish(self._scan(frame, stamp))
         for name, msg in self._ranges(frame, stamp):
             self.pub[f"obstacle_{name}"].publish(msg)
+        if self.map is not None:
+            self.update_map(frame, stamp)
         self.rclpy.spin_once(self.node, timeout_sec=0.0)
 
     def ok(self) -> bool:

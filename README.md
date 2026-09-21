@@ -5,7 +5,9 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Depth from a pair of cameras: calibrate the rig, rectify the views, match them,
-and read distance out of the disparity.
+and read distance out of the disparity. On a robot it gives the outputs a
+commercial depth camera does, over ROS 2 or plain HTTP, and fuses the frames
+into one point cloud map of wherever it has been.
 
 ![Depth measured by the pipeline on a synthetic scene, next to the ray-traced truth and the per-pixel error](docs/samples/scene_summary.png)
 
@@ -48,6 +50,7 @@ src/stereo_vision/
   live.py            per-frame depth pipeline with stage timings
   stream.py          live view and robot HTTP API (/api/v1/...)
   outputs.py         robot outputs: metres, point cloud, laser scan, obstacles
+  mapping.py         fuses per-frame clouds into one map, at poses you supply
   ros2.py            ROS 2 publisher: standard sensor_msgs topics and TF
   autocapture.py     saves calibration pairs without a key press
   benchmark.py       frame rate per preset, and accuracy against truth
@@ -58,7 +61,8 @@ tools/               release tooling (release notes from the changelog)
 examples/            robot client for the HTTP API
 docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
-sim/gazebo/          obstacle-avoidance simulation in Gazebo (not part of the package)
+sim/gazebo/          Gazebo simulations (not part of the package): a rover avoiding
+                     obstacles, and a drone mapping an indoor warehouse
 ```
 
 ## Hardware
@@ -468,6 +472,7 @@ that any language or board can read.
 | Depth | distance per pixel, metres | `depth/image` (32FC1) | `depth.npy`, `depth.png` (mm) |
 | Camera model | intrinsics of the depth image | `depth/camera_info` | `info` |
 | Point cloud | 3D point per pixel, metres, with intensity | `points` (PointCloud2) | `points.ply` |
+| Map | every frame fused into one cloud of the place (`--map`) | `map_points` (PointCloud2) | – |
 | Laser scan | nearest obstacle per bearing, from the depth | `scan` (LaserScan) | `scan` |
 | Obstacles | nearest distance overall and left/centre/right | `obstacles/{left,centre,right}` (Range) | `obstacles` |
 | Confidence | trust per pixel, 0-100 (`--confidence`) | `confidence/image` | `confidence.png` |
@@ -578,13 +583,72 @@ skew, so a replay reproduces the original depth exactly. They're useful for
 developing robot behaviour without hardware. `--replay` also accepts a
 calibration capture folder.
 
+### Mapping: one point cloud of the whole place
+
+A depth camera sees one view at a time. A map is many views placed in the same
+frame, which for a building is its digital reconstruction. From a recording:
+
+```bash
+ster-vis map --replay run1/ --poses run1/poses.csv --out map/
+```
+
+```
+map/map.ply    the map as a point cloud (open it in the browser viewer, MeshLab or CloudCompare)
+map/map.pgm    a top-down floor plan, with map.yaml, in ROS map_server's format
+map/map.json   what was fused, the extent, and the trajectory
+```
+
+Live on a ROS 2 robot, the same thing on a topic:
+
+```bash
+ster-vis ros2 --map --map-frame map --map-save warehouse/
+```
+
+`map_points` is published as a latched `PointCloud2`, so RViz shows the map as
+it grows and anything that subscribes late still gets it.
+
+The map is a voxel grid, hashed rather than allocated, so only the space that
+was actually seen costs memory. Each voxel keeps the running mean of the points
+that landed in it and how many there were. The mean averages away stereo noise,
+which is zero-mean along the ray, so a wall seen from several places
+reconstructs better than from any one of them; the count is the evidence, and
+`--min-hits 2` (the default) drops the single-frame flyers SGBM leaves on depth
+edges.
+
+**Ster-Vis does not work out where the camera is.** Every frame is fused at a
+pose you supply — a TF lookup for the live node, a CSV of your odometry for a
+recording — because stereo depth is metric but has no memory. The map is
+exactly as good as those poses: drifting odometry gives a drifting map. On a
+ROS robot the pose already exists (`robot_localization`, `rtabmap_ros`,
+`slam_toolbox`, a flight controller's VIO, or motion capture); Ster-Vis
+consumes it rather than competing with it.
+
+| Setting | Default | What it changes |
+|---|---|---|
+| `--voxel` | 0.05 m | map resolution; memory grows with its cube |
+| `--max-range` | 6 m | depth error grows with the square of distance, so far points blur the map |
+| `--step` | 2 | use every n-th pixel each way; the cheapest way to afford mapping on a Pi |
+| `--keyframe-distance`, `--keyframe-angle` | 0.15 m, 10° | skip frames from where the map has already been |
+| `--min-hits` | 2 | how much evidence a voxel needs to be exported |
+| `--cell`, `--floor-band` | 0.1 m, all | floor plan resolution, and the height band it flattens |
+
+The pose file is a CSV with a header: `x`, `y`, `z` in metres, plus either
+`qx qy qz qw` or `roll pitch yaw` in radians, and optionally a `timestamp`
+that is matched against the recording's own frame times. Poses are read as the
+robot's REP 103 body frame unless you pass `--pose-frame optical`. Write them
+to `poses.csv` inside the recording while it is being made, and `--poses` can
+be left off.
+
+There is no map in the HTTP API: nothing there supplies a pose. Record the
+flight (`--record`) and map it afterwards, or use the ROS 2 node.
+
 ### Not included (yet)
 
-The ZED also does visual-inertial tracking, spatial mapping and object
-detection, using its built-in IMU and an NVIDIA GPU. Ster-Vis doesn't. On a
-ROS robot, existing packages fill those gaps from these outputs:
-`rtabmap_ros` or `slam_toolbox` for mapping and localisation, and any
-detector on `left/image_rect`.
+The ZED also does visual-inertial tracking and object detection, using its
+built-in IMU and an NVIDIA GPU. Ster-Vis doesn't: it maps (above) but does not
+localise, and it does not detect objects. On a ROS robot, existing packages
+fill those gaps from these outputs: `rtabmap_ros` or `slam_toolbox` for
+localisation and loop closure, and any detector on `left/image_rect`.
 
 Per-pixel surface normals are left out on purpose. Tested against truth, SGBM
 depth at a 60 mm baseline was too noisy for them: even smoothed, they were
@@ -595,8 +659,9 @@ depth at a 60 mm baseline was too noisy for them: even smoothed, they were
 Four ways to look at depth maps and point clouds, from no install at all to
 full 3D editors. Sample files to try them on are in
 [docs/samples](docs/samples): a depth map
-([scene_depth_mm.png](docs/samples/scene_depth_mm.png)) and a point cloud
-([scene_cloud.ply](docs/samples/scene_cloud.ply)).
+([scene_depth_mm.png](docs/samples/scene_depth_mm.png)), a point cloud
+([scene_cloud.ply](docs/samples/scene_cloud.ply)), and the warehouse map from
+the drone simulation at 10 cm ([warehouse_map.ply](docs/samples/warehouse_map.ply)).
 
 ### Browser viewer — nothing to install
 
@@ -760,9 +825,10 @@ loudly.
 ## Testing and validation
 
 Three layers, none of them needing hardware: the unit tests, the synthetic
-ground-truth scenes in [Try it without cameras](#try-it-without-cameras), and a
-robot driving itself in Gazebo on Ster-Vis depth. Nothing has run on a real
-Pi or real cameras yet.
+ground-truth scenes in [Try it without cameras](#try-it-without-cameras), and
+two robots in Gazebo that see only through Ster-Vis — a rover avoiding
+obstacles, and a drone mapping a warehouse. Nothing has run on a real Pi or
+real cameras yet.
 
 ### Unit tests
 
@@ -828,6 +894,80 @@ What the simulation showed:
   strip, so the edge is seen rather than unknown.
 
 How to run it, and what each script does: [sim/gazebo/README.md](sim/gazebo/README.md).
+
+### Gazebo simulation: mapping a warehouse from a drone
+
+![Gazebo flight: chase camera and the Ster-Vis map growing on top; below, the rectified left image, Ster-Vis depth, the stereo scan against the truth, and status](docs/samples/gazebo_warehouse_map.gif)
+
+A quadrotor with the same Ster-Vis head — two cameras on a 12 cm bar and a
+Pi 5 — flies around a 20 x 12 m warehouse in Gazebo Harmonic: three runs of
+pallet racking, stock on the shelves, loose pallets in the aisles, a roof.
+Nothing plans the flight. It avoids what the stereo pair sees, flies 150 s at
+1.3 m and 150 s at 2.1 m, and every keyframe's point cloud is fused into one
+5 cm map at the pose the simulator reports, as a real drone would take it from
+its flight controller. The GIF is 24 s of the flight;
+[the full 5 minutes is here](docs/samples/gazebo_warehouse_map.mp4).
+
+![The map the flight built: an oblique view with the roof hidden, and the plan against the true outline of every box](docs/samples/warehouse_map.png)
+
+To score a reconstruction you need the true one. The warehouse is built from
+boxes with known poses, so every mapped point is measured against real
+geometry. A second map is built on the same flight from Gazebo's perfect depth
+camera, at the same poses and settings: the best any mapping could do from
+where the drone went. Completeness is measured against that map, which keeps
+the question about stereo rather than about where the drone happened to fly.
+
+| Flight (300 s sim time) | Result |
+|---|---|
+| Flown, collisions | 126.8 m, 0 |
+| Map | 556,129 points at 5 cm, from 901 keyframes of 2,999 pairs; 36 MB in memory |
+| Accuracy against the true geometry | median 2.7 cm, p90 9.8 cm; 90.2% of points within 10 cm |
+| Points more than 30 cm from any surface | 0.59% |
+| Completeness against the ideal-sensor map, within 10 cm | 92.3% |
+| The ideal-sensor map's own accuracy | median 3.1 mm: what the 5 cm voxels cost |
+| Near obstacles the stereo scan reported clear | 0.03% of beams |
+
+The same flight's 901 keyframes and poses were also recorded and rebuilt with
+`ster-vis map`, which took 23 s on the development laptop: 26 ms a keyframe
+for rectification, matching, the confidence check and fusion together. That
+also allowed a controlled comparison, the same frames at two range limits:
+
+| `--max-range` | Points | Accuracy, median / p90 | Within 10 cm | Beyond 30 cm |
+|---|---|---|---|---|
+| 4 m | 491,402 | 2.6 / 9.1 cm | 91.3% | 0.29% |
+| 6 m | 998,648 | 3.8 / 16.9 cm | 79.0% | 2.13% |
+
+What the simulation showed:
+
+- **Range is the setting that matters.** Stereo error grows with the square of
+  distance: at this rig's 12 cm baseline and the `pi5` preset's 234 px focal
+  length, half a pixel of disparity is 3 cm at 2 m but 28 cm at 4 m. Mapping
+  out to 6 m doubled the p90 error and made seven times as many stray points
+  as stopping at 4 m. The library default stays at 6 m, which suits the
+  full-resolution `quality` preset; on a Pi 5 preset, use 4.
+- **The map is limited by the depth, not by the fusion.** Built from perfect
+  depth, the same map is accurate to 3 mm, so the 2.7 cm is stereo's.
+- **It found a performance bug before release.** Fusion first kept the map in
+  one sorted array and re-sorted it for every keyframe, which a stress test
+  (random depth, so every frame is mostly new voxels) measured at 200 ms a
+  keyframe by 1.6 million voxels. The released version keeps new voxels in a
+  small second array and folds it into the main one only as it grows: 25 ms a
+  keyframe at the same size, plus a fold of about a quarter of a second every
+  few keyframes in that test. A real flight adds far fewer new voxels a frame,
+  so folds are rarer.
+- **A forward-looking drone cannot see below itself.** In a development
+  flight the drone came back down from 2.1 m onto a pallet stack it had just
+  flown over, so the flight above only climbs. A real drone descends on a
+  downward rangefinder, or on its map. (An earlier flight also crept forward
+  while climbing, into a rack post it had seen; it now holds position while
+  it changes level. Both were the simulation's flight logic, not the depth.)
+- **The right-edge strip helps the map and costs it a little.** `fly.py`
+  keeps unchecked depth in the strip the confidence check cannot score (see
+  above); in the map that adds coverage (92% complete, against 86% for the
+  `ster-vis map` rebuild, which drops it) and some strays (0.59% against
+  0.29%).
+
+How to run it: [sim/gazebo/README.md](sim/gazebo/README.md#warehouse-mapping-from-a-drone).
 
 ## License
 

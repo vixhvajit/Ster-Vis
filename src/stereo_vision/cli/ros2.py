@@ -44,6 +44,29 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[
                         metavar=("X", "Y", "Z", "ROLL", "PITCH", "YAW"),
                         help="camera pose on the parent frame: metres and radians, REP 103 axes")
     parser.add_argument("--duration", type=float, default=None, help="stop after this many seconds")
+
+    mapping = parser.add_argument_group("mapping")
+    mapping.add_argument("--map", action="store_true",
+                         help="fuse every frame into one point cloud map, published on map_points; "
+                              "the pose per frame comes from TF")
+    mapping.add_argument("--map-frame", default="map",
+                         help="TF frame the map is built in (default map)")
+    mapping.add_argument("--map-voxel", type=float, default=0.05, metavar="M",
+                         help="map resolution in metres (default 0.05)")
+    mapping.add_argument("--map-max-range", type=float, default=6.0, metavar="M",
+                         help="ignore depth beyond this when mapping (default 6)")
+    mapping.add_argument("--map-step", type=int, default=2,
+                         help="map every n-th pixel each way (default 2)")
+    mapping.add_argument("--map-keyframe-distance", type=float, default=0.15, metavar="M",
+                         help="skip frames taken within this distance of the last (default 0.15)")
+    mapping.add_argument("--map-keyframe-angle", type=float, default=10.0, metavar="DEG",
+                         help="...and within this angle of it (default 10)")
+    mapping.add_argument("--map-min-hits", type=int, default=2,
+                         help="publish and save voxels seen by at least this many points (default 2)")
+    mapping.add_argument("--map-publish-hz", type=float, default=1.0,
+                         help="how often to publish the growing map (default 1)")
+    mapping.add_argument("--map-save", type=Path, default=None, metavar="DIR",
+                         help="write map.ply, map.pgm and map.json here when the node stops")
     add_camera_args(parser)
     add_robot_args(parser)
     return parser.parse_args(argv), ros_args
@@ -57,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no calibration at {args.calibration}; run ster-vis calibrate first")
         return 1
 
+    from stereo_vision.mapping import MapConfig
     from stereo_vision.ros2 import RosPublisher
 
     calibration = load_calibration(args.calibration)
@@ -65,10 +89,22 @@ def main(argv: list[str] | None = None) -> int:
     unit = UNIT_TO_M[args.unit]
     camera = CameraModel.from_calibration(pipeline.calibration, unit)
     scan = scan_config(args)
+    map_config = None
+    if args.map or args.map_save is not None:
+        try:
+            map_config = MapConfig(voxel_m=args.map_voxel, max_range_m=args.map_max_range,
+                                   step=args.map_step, keyframe_distance_m=args.map_keyframe_distance,
+                                   keyframe_angle_deg=args.map_keyframe_angle,
+                                   min_hits=args.map_min_hits)
+        except ValueError as error:
+            print(f"ster-vis ros2: {error}")
+            return 2
     try:
         publisher = RosPublisher(camera, args.namespace, args.parent_frame,
                                  tuple(args.mount[:3]), tuple(args.mount[3:]),
-                                 confidence=args.confidence, ros_args=["ster-vis"] + ros_args)
+                                 confidence=args.confidence, ros_args=["ster-vis"] + ros_args,
+                                 map_config=map_config, map_frame=args.map_frame,
+                                 map_publish_hz=args.map_publish_hz)
     except RuntimeError as error:
         print(error)
         return 1
@@ -78,6 +114,13 @@ def main(argv: list[str] | None = None) -> int:
         f"{preset.name}: {camera.width}x{camera.height} {pipeline.params.mode}, closest "
         f"{pipeline.closest_mm * unit:.2f} m; publishing under /{args.namespace.strip('/')}"
     )
+    if map_config is not None:
+        rate = (f"publishing map_points every {1.0 / args.map_publish_hz:.1f} s"
+                if args.map_publish_hz > 0 else "publishing map_points on every keyframe")
+        node.get_logger().info(
+            f"mapping at {map_config.voxel_m * 100:.0f} cm in the {args.map_frame} frame, "
+            f"pose from TF; {rate}"
+        )
     source = open_frames(args, calibration)
     recorder = None
     if args.record is not None:
@@ -114,6 +157,16 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if recorder is not None:
             recorder.close()
+        if publisher.map is not None:
+            stats = publisher.map.stats()
+            node.get_logger().info(
+                f"map: {stats['points']:,} points from {stats['frames_integrated']} frames"
+                + (f", {publisher.map_missing_tf} frames had no {args.map_frame} transform"
+                   if publisher.map_missing_tf else "")
+            )
+            if args.map_save is not None and stats["points"]:
+                written = publisher.save_map(args.map_save)
+                node.get_logger().info(f"wrote {written['ply']}, {written['pgm']} and {written['json']}")
         publisher.close()
     return 0
 

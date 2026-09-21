@@ -301,9 +301,15 @@ def ply_bytes(points: np.ndarray, intensity: np.ndarray | None = None, step: int
     """Binary little-endian PLY of the finite points, every ``step``-th pixel each way."""
     sub = points[::step, ::step].reshape(-1, 3)
     keep = np.isfinite(sub).all(axis=1)
-    xyz = sub[keep].astype("<f4")
+    grey = None if intensity is None else intensity[::step, ::step].reshape(-1)[keep]
+    return ply_from_points(sub[keep], grey)
+
+
+def ply_from_points(xyz: np.ndarray, intensity: np.ndarray | None = None) -> bytes:
+    """Binary little-endian PLY from an (N, 3) array already free of NaN."""
+    xyz = np.asarray(xyz, np.float32).reshape(-1, 3).astype("<f4")
     if intensity is not None:
-        grey = intensity[::step, ::step].reshape(-1)[keep].astype(np.uint8)
+        grey = np.asarray(intensity).reshape(-1)[: len(xyz)].astype(np.uint8)
         record = np.empty(len(xyz), dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
                                             ("red", "u1"), ("green", "u1"), ("blue", "u1")])
         record["x"], record["y"], record["z"] = xyz.T

@@ -10,6 +10,7 @@ avoid.py writes run.mp4 at one frame per processed pair, 10 fps by default.
 
 import argparse
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -43,13 +44,22 @@ def gif(video: Path, out: Path, start: float, seconds: float, width: int, step: 
     print(f"wrote {out} ({len(images)} frames, {os.path.getsize(out) / 1e6:.1f} MB)")
 
 
-def h264(video: Path, out: Path, crf: int) -> None:
+def ffmpeg_exe() -> str | None:
+    """imageio-ffmpeg's copy, or an ffmpeg on PATH (the RoboStack env ships one)."""
     try:
         import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
     except ImportError:
-        print("skipped H.264: pip install imageio-ffmpeg")
+        return shutil.which("ffmpeg")
+
+
+def h264(video: Path, out: Path, crf: int) -> None:
+    exe = ffmpeg_exe()
+    if exe is None:
+        print("skipped H.264: no ffmpeg (pip install imageio-ffmpeg)")
         return
-    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(video),
+    subprocess.run([exe, "-y", "-loglevel", "error", "-i", str(video),
                     "-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart", str(out)], check=True)
     print(f"wrote {out} ({os.path.getsize(out) / 1e6:.1f} MB)")

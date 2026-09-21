@@ -15,6 +15,7 @@ COMMANDS = {
     "calibrate": ("calibrate", "solve the rig from captured pairs"),
     "depth": ("depth", "depth from two images, or live; --stream serves the robot API"),
     "ros2": ("ros2", "run as a ROS 2 node: depth, point cloud, laser scan, TF"),
+    "map": ("map", "fuse a recording and its poses into one point cloud map"),
     "view": ("view", "inspect a depth map: hover for mm, click to measure"),
     "viewer": ("viewer", "open the browser viewer for point clouds and depth maps"),
     "benchmark": ("benchmark", "frame rate per preset on this machine; --accuracy too"),
