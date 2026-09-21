@@ -11,14 +11,43 @@ release notes, so write entries for the people who install it.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-21
+
+Ster-Vis stops forgetting: frames can now be fused into one point cloud map of
+the place the camera moved through.
+
 ### Added
 
-- **A Gazebo simulation of obstacle avoidance on Ster-Vis depth**
-  (`sim/gazebo/`, not part of the package). A rover with two cameras and a
-  Pi 5 drives itself among obstacles, using the `pi5` preset, the confidence
-  check and the laser scan. Every scan is scored against a perfect depth
-  camera. It ran 180 s with no collisions. Results, a GIF and a video are in
-  the README under Testing and validation.
+- **Mapping.** `stereo_vision.mapping` fuses per-frame point clouds into one
+  voxel-averaged map, with each voxel keeping the running mean of the points
+  in it and how many there were. Averaging removes stereo noise a single
+  frame cannot, and the count separates real surfaces from single-frame
+  flyers (`--min-hits`). Keyframe thresholds skip views the map already has.
+- **`ster-vis map`**, which builds a map from a recording and a CSV of your
+  poses, and writes `map.ply` (the reconstruction), `map.pgm` + `map.yaml` (a
+  top-down floor plan in ROS map_server's format) and `map.json` (what was
+  fused, the extent, the trajectory).
+- **`ster-vis ros2 --map`**, which does the same live, taking the pose of each
+  frame from TF and publishing the growing map on `map_points` as a latched
+  `PointCloud2`. `--map-save DIR` writes it out when the node stops.
+- `Pose`, `MapConfig`, `PointCloudMap` and `load_poses` are exported from
+  `stereo_vision`.
+
+  **Ster-Vis does not estimate where the camera is**, by design: every frame
+  is placed at a pose you supply, from odometry, TF, a flight controller or
+  motion capture. The map is exactly as good as those poses.
+
+- **Two Gazebo simulations** (`sim/gazebo/`, not part of the package), both
+  running Ster-Vis unmodified on a `pi5` preset:
+  - a rover avoiding obstacles on the stereo laser scan: 180 s, no
+    collisions, every scan scored against a perfect depth camera;
+  - a drone flying an indoor warehouse and mapping it, with the map scored
+    against the building's true geometry and against the map an ideal depth
+    camera would have built on the same flight. Over 300 s and 127 m, with no
+    collisions: 556,129 points at 5 cm, median error 2.7 cm, 90% of points
+    within 10 cm of a real surface, and 92% of what the ideal camera mapped.
+
+  Results, GIFs and videos are in the README under Testing and validation.
 
 ## [2.0.2] - 2026-09-19
 
@@ -128,7 +157,8 @@ First release.
 - Synthetic ground truth: a virtual stereo rig and a ray-traced scene, so the
   whole pipeline is tested without cameras.
 
-[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/vixhvajit/Ster-Vis/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/vixhvajit/Ster-Vis/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/vixhvajit/Ster-Vis/compare/v0.1.0...v2.0.0

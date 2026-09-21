@@ -19,8 +19,9 @@ incompatible way needs a major version:
   Incompatible changes go to a new `/api/v2/`, and `/api/v1/` keeps working
   alongside it for at least one further major version.
 - **ROS 2:** topic names, message types, frame names and units.
-- **Files:** calibration `.npz` files, depth PNGs and `.npy` files, and
-  recordings. A newer version always reads files written by an older one.
+- **Files:** calibration `.npz` files, depth PNGs and `.npy` files,
+  recordings, and the map files `map.ply`, `map.pgm` with `map.yaml` and
+  `map.json`. A newer version always reads files written by an older one.
 - **The Python API:** the names exported from `stereo_vision` (its
   `__all__`). Other modules are internal and can change in any release.
 - **Install files:** `constraints-numpy1.txt` and the `deploy/pi/` scripts

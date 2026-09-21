@@ -5,6 +5,7 @@ CI runs these inside the official ros:jazzy container.
 
 from __future__ import annotations
 
+import json
 import math
 import struct
 import subprocess
@@ -162,3 +163,80 @@ def test_cli_node_runs_from_a_recording(tmp_path):
         node.wait(timeout=10)
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def map_publisher(tmp_frame: str = "base_link", **config):
+    """A publisher that also maps, with the node's own static TF as the pose source."""
+    from stereo_vision.mapping import MapConfig
+
+    settings = {"voxel_m": 0.05, "step": 2, "min_hits": 1, "max_range_m": 5.0,
+                "keyframe_distance_m": 0.0, "keyframe_angle_deg": 0.0}
+    settings.update(config)
+    return RosPublisher(CAMERA, namespace="ster_vis_map", parent_frame="base_link",
+                        mount_xyz=(0.1, 0.0, 0.3), ros_args=["test"],
+                        map_config=MapConfig(**settings), map_frame=tmp_frame, map_publish_hz=0.0)
+
+
+def test_the_map_is_published_in_the_map_frame():
+    """Frames fuse at the pose TF gives, so a wall 2 m ahead lands 2 m ahead of the robot."""
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+    publisher = map_publisher()
+    listener = rclpy.create_node("map_listener")
+    latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    got = {}
+    listener.create_subscription(PointCloud2, "/ster_vis_map/map_points",
+                                 lambda msg: got.setdefault("map", msg), latched)
+    try:
+        deadline = time.monotonic() + 15.0
+        sequence = 0
+        while "map" not in got and time.monotonic() < deadline:
+            publisher.publish(frame(sequence))
+            sequence += 1
+            for _ in range(4):
+                rclpy.spin_once(listener, timeout_sec=0.02)
+        assert "map" in got, f"no map_points ({publisher.map_missing_tf} frames had no transform)"
+        cloud = got["map"]
+        assert cloud.header.frame_id == "base_link"
+        assert (cloud.height, cloud.point_step, cloud.is_dense) == (1, 16, True)
+        points = np.frombuffer(bytes(cloud.data), np.float32).reshape(-1, 4)
+        assert len(points) == cloud.width > 100
+        # The camera sits 0.1 m forward and 0.3 m up; the wall is 2 m in front
+        # of it, and the obstacle in the left columns is 0.8 m in front.
+        assert points[:, 0].max() == pytest.approx(2.1, abs=0.06)
+        assert points[:, 0].min() == pytest.approx(0.9, abs=0.06)
+        assert abs(points[:, 2].mean() - 0.3) < 0.1
+        assert np.isfinite(points).all()
+    finally:
+        listener.destroy_node()
+        publisher.close()
+
+
+def test_the_map_is_saved_where_asked(tmp_path):
+    publisher = map_publisher()
+    try:
+        deadline = time.monotonic() + 15.0
+        sequence = 0
+        while not len(publisher.map) and time.monotonic() < deadline:
+            publisher.publish(frame(sequence))
+            sequence += 1
+        assert len(publisher.map), "nothing was mapped"
+        written = publisher.save_map(tmp_path / "map")
+        assert written["ply"].stat().st_size > 1000
+        assert written["pgm"].is_file() and written["yaml"].is_file()
+        assert json.loads(written["json"].read_text())["points"] == len(publisher.map.points())
+    finally:
+        publisher.close()
+
+
+def test_a_frame_without_a_transform_is_not_mapped():
+    """A map frame nothing publishes leaves the map empty rather than guessing."""
+    publisher = map_publisher(tmp_frame="odom")
+    try:
+        for sequence in range(3):
+            publisher.publish(frame(sequence))
+        assert len(publisher.map) == 0
+        assert publisher.map_missing_tf == 3
+    finally:
+        publisher.close()
