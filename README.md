@@ -63,6 +63,7 @@ docs/                printable targets; docs/samples holds example outputs
 tests/               runs without hardware
 sim/gazebo/          Gazebo simulations (not part of the package): a rover avoiding
                      obstacles, and a drone mapping an indoor warehouse
+hardware/test-amr/   a 3D-printed test robot for the first run on real hardware
 ```
 
 ## Hardware
@@ -828,7 +829,8 @@ Three layers, none of them needing hardware: the unit tests, the synthetic
 ground-truth scenes in [Try it without cameras](#try-it-without-cameras), and
 two robots in Gazebo that see only through Ster-Vis — a rover avoiding
 obstacles, and a drone mapping a warehouse. Nothing has run on a real Pi or
-real cameras yet.
+real cameras yet. The fourth layer, a real robot, is designed and not yet
+built: see [Real hardware](#real-hardware-a-3d-printed-test-robot).
 
 ### Unit tests
 
@@ -968,6 +970,34 @@ What the simulation showed:
   0.29%).
 
 How to run it: [sim/gazebo/README.md](sim/gazebo/README.md#warehouse-mapping-from-a-drone).
+
+### Real hardware: a 3D-printed test robot
+
+![The test robot in Fusion 360: two printed decks on 4WD gear motors, a Pi 5 on top and the stereo pair at the front](hardware/test-amr/render.png)
+
+The first real-hardware tests will run on a small 4WD skid-steer robot built
+for the purpose:
+- **Chassis:** printed, with the camera mount in ABS and the rest in PLA.
+- **Drive:** yellow TT gear motors on their stock 65 mm wheels, two L298N drivers, and a 3S LiPo.
+- **Stereo head:** a Raspberry Pi 5, with two Camera Module 3 on a 60 mm baseline and the lenses about 12 cm above the floor.
+
+The design is a Fusion 360 script. It builds the assembly with stand-ins for
+the bought parts, and checks that nothing overlaps, including the bolt heads
+and nuts. It then exports the print-ready STLs.
+
+**Results: none yet. The robot has not been built.** The plan is to repeat the
+Gazebo obstacle-avoidance test on a real floor: the `pi5` preset, the
+confidence check and the laser scan driving a reactive controller. This time
+the Pi 5 frame rate is measured instead of estimated. The motors have no
+encoders, so the robot cannot supply the poses that mapping needs. Mapping stays
+a simulation result until it does.
+
+The 60 mm baseline suits this robot's range. At the `pi5` preset (about
+490 px focal length at 1280x720 capture), half a pixel of disparity is about
+1.7 cm at 1 m and 7 cm at 2 m, so the scan is limited to about 2.5 m.
+
+Parts, printing, assembly and the Ster-Vis settings for this robot:
+[hardware/test-amr/README.md](hardware/test-amr/README.md).
 
 ## License
 

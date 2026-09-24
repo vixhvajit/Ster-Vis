@@ -9,3 +9,5 @@
 *.ply binary
 *.gif binary
 *.mp4 binary
+*.stl binary
+*.f3d binary
