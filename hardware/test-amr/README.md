@@ -1,164 +1,110 @@
-# Ster-Vis test AMR
+# Ster-Vis test AMR (minimal)
 
-A small 4WD skid-steer robot for testing Ster-Vis on real hardware. The chassis is
-3D printed in PLA. The camera mount can be ABS too, but PLA is stiffer, which suits a stereo mount. It carries yellow
-BO (TT) gear motors on their stock 65 mm wheels, a 3S LiPo, a Raspberry Pi 5,
-two L298N drivers and two Camera Module 3 on a 60 mm baseline.
+A temporary 4WD skid-steer robot for trying Ster-Vis on real hardware, built to
+be printed and running in an afternoon. The chassis is **one printed deck**
+with the camera bracket in one piece with it, plus two small camera covers and
+four keys. Everything else is glued or just sits in place:
 
-**No screws, nuts, straps or zip ties.** Every joint is printed. M2 and M3
-threads are too fine to print, so each joint uses a shape that prints well
-instead:
-
-| Joint | Printed fastening |
+| Part | How it is held |
 |---|---|
-| Decks and pillars | 6 mm pegs on the pillar ends pass through the decks. A tapered wedge pushed through a slot in each peg pulls the deck tight |
-| Motors | Headed pins go through the wall and the gearbox, pressed into the wall. The wheel, 2 mm outside the head, stops them walking out |
-| L298N boards | Standoffs with a snap peg at each end: the top one clicks through the board and the bottom one through the deck |
-| Pi 5 | Snap pegs on the top deck's four bosses |
-| Cameras | Each board slides down between rails onto a ledge. A cover presses it against four rear stops, touching only around the board's holes, and two tapered keys wedge the cover in |
-| Battery, buck converter | Sprung U-clips that snap through slots in the deck. Their bars bow down and hold the part by spring pressure |
+| 4 BO motors | Glued into shallow pockets under the deck, which line them up. Use epoxy, or plenty of hot glue |
+| Pi 5, 2 L298Ns | Drop onto posts with pegs through their mounting holes. A dab of hot glue on each peg |
+| Battery (Bonka 3S 2200 mAh, 105 × 34 × 25 mm) | Stands on its long edge in a tray and lifts out for charging. The leads leave through a notch at one end. A rubber band or tape over the top keeps it in on bumps |
+| 5 V buck converter | Sits in a low rim, with a dab of glue |
+| 2 Camera Module 3 | Slide down between rails onto a ledge. A printed cover, pressed by two tapered keys, clamps each board against four stops. It touches the board only around its four holes, and needs no glue |
 
 ![Assembly render](render.png)
 
 The plain BO motors have no encoders, so this robot can test obstacle avoidance
 but cannot give the poses that mapping needs.
 
-## Files
+## Print
 
-| File | What it is |
-|---|---|
-| `chassis.py` | The design. A Fusion 360 script that builds the assembly, checks it for interferences and writes everything below. Change dimensions here, not in the STLs. |
-| `stl/*.stl` | Print-ready parts, already oriented for the bed |
-| `cad/ster-vis-test-amr.f3d` | The Fusion assembly, including stand-in models of the bought parts |
-| `cad/assembly/*.stl` | The printed parts where they sit on the robot, for the Gazebo model |
-| `render.png` | The picture above |
+| File | Qty | Notes |
+|---|---|---|
+| `stl/deck_PLA.stl` | 1 | 157 × 136 × 38 mm, prints as it sits, with the bracket up. No supports |
+| `stl/camera_cover_PLA_x2.stl` | 2 | Front face down, pads up |
+| `stl/camera_key_PLA_x4.stl` | 4 | On its side. Print a few spares: they are small |
 
-To regenerate, run `chassis.py` in Fusion (Utilities > Scripts and Add-Ins, or
-through the fusion360 MCP bridge). It opens a new design and returns a summary.
-An empty `clashes` list means no part overlaps another, printed fasteners
-included. Some parts touch on purpose and are not reported: the motor shafts sit
-in the wheels, and the clips' bars press on the battery and the buck converter.
-An empty `battery_path_blocked_by` means the battery can still slide out.
-Building it takes a few minutes.
+PLA, 0.2 mm layers, 3 perimeters, 20% infill (100% for the keys). The deck is
+about 86 cm³ of solid geometry: roughly 3–4 hours on a typical printer, and
+less on a fast one. The motor pockets are shallow recesses in the bottom face,
+bridged over, so they need no supports either.
 
-## Before you print: measure your parts
+## Before you glue: measure
 
-The bought-part dimensions come from published drawings, not from your parts.
-Measure with calipers and compare with the values at the top of `chassis.py`.
-The ones that matter most:
+The bought-part sizes come from published drawings and product listings, not
+from your parts. Check with calipers before gluing anything:
+- **Camera Module 3:** 25 × 24 mm board, holes 21 mm apart across and 12.5 mm
+  apart vertically, top holes 2 mm below the top edge.
+- **Battery:** 105 × 34 × 25 mm. The tray leaves 0.5 mm each side.
+- **Pi 5 and L298N holes:** the pegs are 2.4 mm (Pi) and 2.6 mm (L298N).
 
-- **Motors:** TT clones vary by about 0.5 mm. Check `TT_HOLE_SPACING` (17.5 mm),
-  the distance between the two mounting holes centre to centre, and
-  `TT_HOLE_BACK` (20.2 mm), the distance from the shaft centre to those holes.
-  The pin holes are exact now, with no slots, so these must be right.
-- **Camera Module 3:** check the board is 25 × 24 mm, with holes 21 mm apart
-  across and 12.5 mm apart vertically, and the top holes 2 mm below the top edge.
-- **Board holes:** the L298N's holes (3.0 mm) and the Pi's (2.7 mm). The snap
-  pegs are sized to them.
+## Build
 
-Then print `motor_fit_test_PLA.stl` first. It is one motor wall plus the deck
-above it, and takes a few minutes. Pin a motor to it with two
-`motor_pin_PLA_x8` pins before you print the full bottom deck.
+1. **Motors.** Solder wires and a 0.1 µF capacitor across each motor's
+   terminals. Glue each gearbox into its pocket under the deck, flat face up,
+   shaft out, motor can pointing to the middle. The pocket sets the position,
+   so press it fully in and hold it while the glue sets.
+2. **Wiring through the deck.** Take each side's two motor leads up through the
+   slot on that side, behind the Pi.
+3. **L298Ns.** Press each board onto its four posts, left board on the left.
+   Add a dab of hot glue on each peg. The left board drives the left motors
+   (front on OUT1/OUT2, rear on OUT3/OUT4), the right board the right motors.
+4. **Pi 5.** Press it onto its four posts, SD card towards the left and USB and
+   Ethernet facing right. Add a dab of glue on each peg.
+5. **Buck converter.** Put it in the rim beside the Pi with a dab of glue.
+   Power the Pi from it, not from an L298N's 5 V pin. Connect every ground
+   together.
+6. **Battery.** Stand it on its long edge in the rear tray, with the leads
+   towards the notch. Put a rubber band or tape over it.
+7. **Cameras.** Slide each board down between its rails, lens forward, until
+   it sits on the ledges. Slide its cover in on top, pads towards the board.
+   Push a key down each side, between the cover and the rail's lip, thin end
+   first, until it is firm. It wedges within a few millimetres; do not force
+   it. Run the ribbons back through the windows to the Pi.
+8. **Wheels** on, and **calibrate** with `ster-vis calibrate`. Recalibrate
+   whenever a key has been moved.
 
-## Printing
+Also keep the L298N heatsinks off the PLA (they sit 5 mm up on their posts),
+fit a fuse and a switch on the battery lead, and cap the motor PWM duty in
+software. A full 3S pack would otherwise put about 10.5 V on 6 V motors;
+[ster-vis-amr](https://github.com/vixhvajit/ster-vis-amr) caps it at 57%.
 
-Every part fits a 180 × 180 mm bed. The largest parts are 150 × 136 mm. Each
-file holds one part; the `_xN` suffix is how many to print.
-
-| Part | Material | Qty | Notes |
-|---|---|---|---|
-| `motor_fit_test_PLA` | PLA | 1 | Print first, see above |
-| `bottom_deck_PLA` | PLA | 1 | Prints upside down, motor walls up. No supports |
-| `top_deck_PLA` | PLA | 1 | Pi bosses and pegs up. No supports |
-| `camera_mount_ABS` | PLA (or ABS) | 1 | Foot on the bed, no supports. PLA needs no enclosure. The name says ABS only because ABS was the first plan. Keep it out of hot sun and cars: PLA softens at about 55–60 °C |
-| `pillar_front_PLA_x2` | PLA | 2 | The two longer ones: they also lock the camera mount's foot. Lying on the flat |
-| `pillar_PLA_x4` | PLA | 4 | Lying on the flat |
-| `wedge_PLA_x12` | PLA | 12 | Flat |
-| `motor_pin_PLA_x8` | PLA | 8 | Lying on the flat. Print a few spares |
-| `l298n_standoff_PLA_x8` | PETG or PLA | 8 | Standing. Use a brim: they stand on a small tip |
-| `battery_clip_PLA_x2` | PETG or PLA | 2 | Lying on its side |
-| `buck_clip_PLA_x2` | PETG or PLA | 2 | Lying on its side |
-| `camera_cover_PLA_x2` | PLA | 2 | Front face down, pads up |
-| `camera_key_PLA_x4` | PLA | 4 | On its side. Print a few spares |
-
-Suggested settings: 0.2 mm layers, 4 perimeters, 5 top and bottom layers,
-30% infill (40% for the camera mount, 100% for the pins, wedges, keys and
-clips). The horizontal holes and slots are shaped to print without supports.
-
-Snap-fit parts (standoffs, clips, and the Pi pegs on the top deck) survive more
-insertions in PETG than in PLA. They work in PLA, but push them home once and
-leave them there.
-
-Holes shrink a little on most printers. If a peg or pin will not go in, open
-the hole with a drill bit of the same size rather than forcing it. If a part
-fits loosely, scale it up by 1–2% in the slicer.
-
-Keep the L298N heatsinks off the PLA: they sit on the standoffs, and PLA
-softens at about 55–60 °C.
-
-## What you still need
-
-Nothing to fasten with. You only need the parts the robot is made of: 4 BO
-motors with their wheels, 2 L298N boards, a Raspberry Pi 5 with Active Cooler,
-a 5 V 5 A buck converter, a 3S 2200 mAh LiPo, two Camera Module 3 with Pi 5
-cables, wire, and a 0.1 µF capacitor per motor.
-
-## Layout
-
-- **Bottom deck:**
-  - The battery lies crosswise in the middle, in the gap between the front and rear wheels. It slides out sideways for charging, under the two clips, with nothing to remove. It is sized for a 3S 2200 mAh pack (about 106 × 34 × 26 mm).
-  - Both L298Ns are at the rear. The left board drives the left motors and the right board drives the right motors.
-  - The motor wires come up through the slots beside each board.
-  - The 5 V buck converter is clipped down at the front.
-- **Top deck:**
-  - The Pi 5 sits with its USB and Ethernet ports facing the rear.
-  - The GPIO header is on the right. Run wires down through the slot on that side.
-  - The camera mount's foot is locked down by the two front pillars. This gives it a direct path down to the bottom deck.
-- **Camera mount:**
-  - Both cameras sit in rails on its front face, 60 mm apart.
-  - Each ribbon leaves the bottom of its board, passes between the two ledges, back through the window behind it, and runs down over the foot to the Pi.
-
-Main dimensions:
+## Main dimensions
 
 | | |
 |---|---|
 | Wheelbase | 124 mm |
-| Track, wheel centre to wheel centre | 170 mm |
-| Overall size | about 189 × 196 × 143 mm, with the camera keys' pull tabs |
-| Ground clearance | 17.8 mm, under the motor walls |
-| Lens height | about 118 mm above the floor |
+| Track, wheel centre to wheel centre | 166 mm |
+| Deck underside above the floor | 43 mm |
+| Ground clearance | 21 mm, under the motors |
+| Lens height | about 70 mm above the floor |
+| Left lens | x 81 mm (front), y +30 mm, from the centre of the wheelbase |
 
 ## Ster-Vis settings for this robot
 
-- **Lens height:** about 0.12 m, estimated from the stand-in camera model. Measure the real one after assembly.
-- **`--scan-min-height`:** set it to about `-0.09`, which is 3 cm above the floor. The default of -0.25 reaches through the floor and reports it as obstacles.
+- **`--scan-min-height -0.04`:** 3 cm above the floor, with the lenses about 7 cm up.
+- **`--scan-max-height 0.05`:** covers everything the robot can hit.
 - **`--scan-range-max 2.5`:** matches what a 60 mm baseline can measure.
-- **Mount pose:** `--mount` is the left camera's pose on the parent frame. With `base_link` on the floor under the centre of the chassis, it is roughly `--mount 0.08 0.03 0.12 0 0 0`. Measure this too.
+- **Mount pose:** `--mount 0.08 0.03 0.07 0 0 0`, the left camera on
+  `base_link` (on the floor under the centre of the wheelbase). Measure it on
+  the built robot.
 
-## Assembly order
+## Files
 
-1. Solder wires and a 0.1 µF capacitor across each motor's terminals.
-2. **Motors.** Hold each motor against its wall, with the gearbox's locating peg
-   (if it faces the wall) in the round hole. Push two pins in from the wheel
-   side, through the gearbox and into the wall. They are a press fit in the
-   wall: push them until the heads sit on the gearbox.
-3. **L298Ns.** Click the eight standoffs into the bottom deck from above, then
-   press each board down onto four of them until the pegs click through.
-4. **Clips.** Push the two battery clips and the two buck clips down through
-   their slots until the barbs click under the deck. Do this before the battery
-   goes in: fitting a clip needs its legs to flex inwards. Then slide the buck
-   converter and the battery in under their clips.
-5. **Pillars and top deck.** Stand the pillars in the bottom deck. On the
-   underside, push a wedge through each peg's slot, thin end first, until it is
-   tight. Put the top deck on, then the camera mount's foot over the two front
-   pegs, and wedge all six on top the same way. The flat on each pillar faces
-   the side the wedge goes in from.
-6. **Pi 5.** Press it down onto the four pegs until they click.
-7. **Cameras.** Slide each camera board down between its rails, lens forward,
-   until it sits on the ledges. Slide the cover in on top of it, pads towards
-   the board. Push a key down each side, between the cover and the rail's lip,
-   thin end first, until it is firm. Do not force it: it wedges tight within a
-   few millimetres. Route the ribbons back through the windows.
-8. **Wheels.** Push them on last. They should just clear the pin heads.
-9. **Calibrate** with `ster-vis calibrate`. Recalibrate whenever a camera key
-   or a front pillar wedge has been moved.
+| File | What it is |
+|---|---|
+| `chassis.py` | The design. A Fusion 360 script that builds the assembly, checks it for interferences and writes everything below. Change dimensions here, not in the STLs |
+| `stl/*.stl` | Print-ready parts, oriented for the bed |
+| `cad/ster-vis-test-amr.f3d` | The Fusion assembly, with stand-ins for the bought parts |
+| `cad/assembly/*.stl` | The printed parts where they sit on the robot, for the Gazebo model |
+| `render.png` | The picture above |
+
+To regenerate, run `chassis.py` in Fusion (Utilities > Scripts and Add-Ins, or
+through the fusion360 MCP bridge). It takes about 20 seconds and returns a
+summary. An empty `clashes` list means nothing overlaps, and an empty
+`battery_lift_blocked_by` means the battery lifts straight out.
+
+The earlier, bolted two-deck design, and the fully printed-fastener version
+after it, are in this folder's git history.
