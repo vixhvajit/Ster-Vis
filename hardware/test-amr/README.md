@@ -1,7 +1,7 @@
 # Ster-Vis test AMR
 
 A small 4WD skid-steer robot for testing Ster-Vis on real hardware. The chassis is
-3D printed: the camera mount in ABS, everything else in PLA. It carries yellow
+3D printed in PLA. The camera mount can be ABS too, but PLA is stiffer, which suits a stereo mount. It carries yellow
 BO (TT) gear motors on their stock 65 mm wheels, a 3S LiPo, a Raspberry Pi 5,
 two L298N drivers and two Camera Module 3 on a 60 mm baseline.
 
@@ -70,7 +70,7 @@ file holds one part; the `_xN` suffix is how many to print.
 | `motor_fit_test_PLA` | PLA | 1 | Print first, see above |
 | `bottom_deck_PLA` | PLA | 1 | Prints upside down, motor walls up. No supports |
 | `top_deck_PLA` | PLA | 1 | Pi bosses and pegs up. No supports |
-| `camera_mount_ABS` | ABS | 1 | Foot on the bed. Use an enclosure and a 5 mm brim. No supports |
+| `camera_mount_ABS` | PLA (or ABS) | 1 | Foot on the bed, no supports. PLA needs no enclosure. The name says ABS only because ABS was the first plan. Keep it out of hot sun and cars: PLA softens at about 55–60 °C |
 | `pillar_front_PLA_x2` | PLA | 2 | The two longer ones: they also lock the camera mount's foot. Lying on the flat |
 | `pillar_PLA_x4` | PLA | 4 | Lying on the flat |
 | `wedge_PLA_x12` | PLA | 12 | Flat |
