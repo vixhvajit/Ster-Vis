@@ -977,13 +977,13 @@ How to run it: [sim/gazebo/README.md](sim/gazebo/README.md#warehouse-mapping-fro
 
 The first real-hardware tests will run on a small 4WD skid-steer robot built
 for the purpose:
-- **Chassis:** printed, with the camera mount in ABS and the rest in PLA.
+- **Chassis:** printed, with the camera mount in ABS and the rest in PLA. The fasteners are printed too, so there are no screws, nuts, straps or zip ties.
 - **Drive:** yellow TT gear motors on their stock 65 mm wheels, two L298N drivers, and a 3S LiPo.
 - **Stereo head:** a Raspberry Pi 5, with two Camera Module 3 on a 60 mm baseline and the lenses about 12 cm above the floor.
 
 The design is a Fusion 360 script. It builds the assembly with stand-ins for
-the bought parts, and checks that nothing overlaps, including the bolt heads
-and nuts. It then exports the print-ready STLs.
+the bought parts, and checks that nothing overlaps, including the printed
+wedges, pins, snap standoffs and clips. It then exports the print-ready STLs.
 
 **Results: none yet. The robot has not been built.** The plan is to repeat the
 Gazebo obstacle-avoidance test on a real floor: the `pi5` preset, the
