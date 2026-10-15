@@ -9,6 +9,10 @@ and read distance out of the disparity. On a robot it gives the outputs a
 commercial depth camera does, over ROS 2 or plain HTTP, and fuses the frames
 into one point cloud map of wherever it has been.
 
+[![Ster-Vis in 22 seconds: two cameras to a depth map, then a rover and a drone in Gazebo driving and mapping on stereo alone. Click to play.](docs/samples/launch_video.jpg)](docs/samples/launch_video.mp4)
+
+*Ster-Vis in 22 seconds, with sound. Click to play.*
+
 ![Depth measured by the pipeline on a synthetic scene, next to the ray-traced truth and the per-pixel error](docs/samples/scene_summary.png)
 
 *The full pipeline on a ray-traced test scene: calibrated from rendered
